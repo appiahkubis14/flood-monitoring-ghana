@@ -70,6 +70,11 @@ twilio==9.3.2
 python-dotenv==1.0.1
 django-extensions==3.2.3
 
+# ── Admin theme ────────────────────────────────────────────────────────────────
+# Listed first in INSTALLED_APPS (settings/base.py) so it overrides the
+# default Django admin templates. Required for the project to start.
+django-jazzmin==3.0.1
+
 # ── Production server ──────────────────────────────────────────────────────────
 gunicorn==23.0.0
 

@@ -139,6 +139,115 @@ handler needed to fetch station/zone detail data — all silently `undefined`.
 Fixed by using `f.id` (verified against the actual
 `GeoFeatureModelSerializer.to_representation()` source, not just an assumption).
 
+## Map rebuilt around a decision-maker UI pattern (latest update)
+
+`/dashboard/map/` was rebuilt around a floating-circular-control +
+draggable-panel interaction pattern (adapted from a reference
+agricultural-mapping template) purpose-built for fast situational
+awareness rather than a static viewer:
+
+- **Risk Areas panel** — every flood zone ranked by composite risk score
+  (0–100), colour-coded, one click to fly-to and inspect. This is the
+  single most decision-maker-relevant addition: instead of scanning a map
+  for colour, the most at-risk zones are listed and sorted automatically.
+- **Compare Flood Extent panel** — pick any two satellite-derived flood
+  detections (e.g. before/after a storm) and the map renders both as
+  dashed-blue (Before) vs solid-red (After) overlays simultaneously, with
+  an automatic area-change calculation (+/− hectares, worsening/improving).
+- **Risk Heatmap panel** — dedicated controls for the intensity heatmap
+  with an explained colour scale and a manual refresh button.
+- **Layers panel** — independent toggles for risk zones, sensors,
+  satellite extent, community reports, and the heatmap.
+- **Draggable panels** — every panel can be dragged anywhere on the map
+  canvas (not fixed in place), so a decision-maker can arrange Risk Areas
+  + Compare side-by-side while still seeing the map underneath.
+- **Unified search** — type a zone or sensor station name, click a result,
+  the map flies to it and opens its detail popup.
+- **Live KPI stats panel** — total zones, active events, stations online,
+  alerts in the last 24h, and the current highest-risk zone, auto-refreshing
+  every 60 seconds.
+
+### Validation note
+
+Every API field referenced by the new map JS (`f.properties.X`, `f.id`)
+was cross-checked directly against each serializer's actual `Meta.fields`
+list (FloodZoneSerializer, FloodMapSerializer, SensorStationSerializer,
+CommunityReportSerializer) before delivery, building on the
+`GeoFeatureModelSerializer` id-placement lesson from the previous map update.
+
+## Three fixes in this update
+
+### 1. Icons not rendering — wrong icon library entirely
+
+The reference template I adapted the map UI from used Font Awesome
+(`<i class="fas fa-...">`), and I carried that pattern over without
+checking what icon system this project actually loads. **Font Awesome was
+never loaded anywhere** in FloodWatch Ghana — the Larkon theme bundles
+**Iconify** (`<iconify-icon icon="solar:...">`) inside `vendor.js`
+instead. Every `fas fa-*` icon in `map.html` (17 occurrences) was silently
+rendering as nothing. Fixed by replacing all of them with the matching
+Solar-icon-set Iconify equivalents already used throughout the rest of the
+dashboard, and verified every static file `base.html` references actually
+resolves on disk via `django.contrib.staticfiles.finders.find()`.
+
+### 2. Seed data wasn't visually interesting on the map
+
+The original seed script generated a random 48h "storm curve" per station,
+but the heatmap and risk-score panel only look at each station's **most
+recent** reading — and a random curve has only a small chance of its peak
+landing exactly on the final 30-minute reading. Most seeded runs would
+show an all-green, uneventful map. Fixed by deliberately engineering the
+final reading of each of the 10 stations to a designed risk ratio cycling
+through the full severity spectrum (1 Red, 1 Orange, 2 Yellow, 6 Green),
+verified against the actual `AlertRules` threshold tiers, so a freshly
+seeded database always shows a realistic, colourful spread immediately —
+while the historical 47h curve before that final reading still looks like
+a real storm passed through, for the trend charts.
+
+### 3. Sidebar replaced with a modern horizontal top navbar
+
+The Larkon theme ships as a sidebar-only layout with sidebar-width
+assumptions baked into its minified `app.min.css` that couldn't be reliably
+reverse-engineered (no readable `.main-nav`/`.page-content` selectors in
+the minified bundle to safely override). Rather than guess and risk a
+broken layout, the sidebar markup was removed entirely and replaced with a
+self-contained horizontal navbar — grouped by Monitoring / Response / Admin,
+same Iconify icons, active-state highlighting preserved — with
+`.page-content { margin-left: 0 !important }` to reclaim the space the
+sidebar used to occupy. The dead hamburger sidebar-toggle button was
+replaced with the FloodWatch brand mark rather than left as a non-functional
+control.
+
+## Navbar restyled: pinned brand + scrollable links + pinned controls (latest update)
+
+The merged single-bar navbar (brand, nav links, and the dark-mode/alerts/user
+controls all in one row) is now properly structured and styled rather than
+just visually stacked:
+
+- **Pinned brand** (left) and **pinned action controls** (right) never
+  scroll out of view; only the middle nav-link groups scroll horizontally
+  on narrow screens.
+- **Fresh, self-contained CSS for the action controls** (dark-mode toggle,
+  alert bell, user dropdown) — these previously relied on Larkon's bundled
+  `.topbar-button` class, which is scoped under a `<header class=topbar>`
+  parent selector in the minified CSS. Once everything moved into a single
+  `<nav class=fw-topnav>`, that parent selector no longer matched, so
+  those styles would have silently failed to apply. Replaced with
+  purpose-built `.fw-action-btn` / `.fw-user-trigger` classes.
+- **Dark mode support** preserved via `[data-bs-theme=dark]` variants on
+  every new class, matching the rest of the theme.
+- All functional IDs the WebSocket script depends on (`#light-dark-mode`,
+  `#alerts-bell`, `#live-alert-count`, `#live-alert-dropdown`,
+  `#live-alert-list`) preserved exactly.
+
+### Validated
+
+Full template render in both anonymous and authenticated-staff user states,
+confirming: pinned brand/actions present, scrollable nav region present,
+active-link highlighting works, the admin nav group only appears for staff
+users, the status banner renders correctly for non-green severity, and
+every static asset path still resolves on disk.
+
 ## A few real bugs caught and fixed during this build
 
 1. **`celery/` directory name collision** (Phase 1) — shadowed the real

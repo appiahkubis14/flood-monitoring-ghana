@@ -167,7 +167,7 @@
                          <div class="fw-topnav-scroll">
                               <div class="fw-topnav-inner">
                                    <div class="fw-topnav-group">
-                                        <span class="fw-topnav-label">Monitoring</span>
+                                        <!-- <span class="fw-topnav-label">Monitoring</span> -->
                                         <a class="fw-topnav-link {% if active_nav == 'dashboard' %}active{% endif %}" href="{% url 'dashboard:index' %}">
                                              <iconify-icon icon="solar:home-2-bold-duotone"></iconify-icon><span>Dashboard</span>
                                         </a>
@@ -186,7 +186,7 @@
                                    </div>
 
                                    <div class="fw-topnav-group">
-                                        <span class="fw-topnav-label">Response</span>
+                                        <!-- <span class="fw-topnav-label">Response</span> -->
                                         <a class="fw-topnav-link {% if active_nav == 'alerts' %}active{% endif %}" href="{% url 'dashboard:alerts' %}">
                                              <iconify-icon icon="solar:siren-bold-duotone"></iconify-icon><span>Alerts</span>
                                         </a>
@@ -197,7 +197,7 @@
 
                                    {% if user.is_staff %}
                                    <div class="fw-topnav-group">
-                                        <span class="fw-topnav-label">Admin</span>
+                                        <!-- <span class="fw-topnav-label">Admin</span> -->
                                         <a class="fw-topnav-link {% if active_nav == 'settings' %}active{% endif %}" href="{% url 'dashboard:settings' %}">
                                              <iconify-icon icon="solar:settings-bold-duotone"></iconify-icon><span>Thresholds &amp; Settings</span>
                                         </a>

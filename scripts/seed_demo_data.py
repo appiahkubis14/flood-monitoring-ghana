@@ -183,36 +183,71 @@ def seed_sensor_readings(stations: list[SensorStation]) -> int:
     """Dense 48h history per station, one reading every 30 minutes (96
     readings/station) -- enough for every trend chart on the dashboard to
     show a real, varying curve rather than 2-3 flat data points.
+
+    The risk heatmap and zone risk-score panel both key off each station's
+    *most recent* reading only (see apps.dashboard.api_views.map_heatmap_points
+    / zone_risk_scores). A purely random storm curve has only a small
+    chance of its peak landing exactly on the final 30-minute reading --
+    most of the time the "current" reading would land near baseline,
+    making a freshly-seeded map look uniformly green/safe and uninteresting
+    to demo. The final reading for each station is therefore deliberately
+    engineered as a designed fraction of *that station's own zone
+    threshold*, cycling through the full risk spectrum (Red -> Orange ->
+    Yellow -> Green) across the 10 stations, so the map shows real colour
+    variety immediately after seeding -- while readings 0-94 still follow
+    the randomised storm curve for realistic-looking historical charts.
     """
     count = 0
     now = timezone.now()
-    for station in stations:
-        # Each station gets its own baseline + a touch of "weather" so
-        # the dashboard-wide aggregate trend looks like a real storm
-        # passing through rather than uniform noise across every station.
-        baseline_water = random.uniform(10, 35)
-        storm_peak_offset = random.randint(0, 95)  # which reading index gets the peak
 
-        for j in range(96):  # 96 * 30min = 48h of history
+    # Designed risk ratio (current water level ÷ that station's own zone
+    # threshold) for the FINAL reading of each station, cycling through
+    # the full severity spectrum so the map always has a compelling spread:
+    #   ratio >= 1.5   -> RED   (water_t * 1.5 = red trigger, see AlertRules)
+    #   ratio in [1,1.5)-> RED/ORANGE boundary
+    #   ratio in [.7,1) -> ORANGE/YELLOW boundary
+    #   ratio < 0.7     -> GREEN (safe)
+    DESIGNED_RATIOS = [1.65, 1.10, 0.90, 0.72, 0.55, 0.40, 0.35, 0.50, 0.25, 0.60]
+
+    for i, station in enumerate(stations):
+        baseline_water = random.uniform(10, 35)
+        storm_peak_offset = random.randint(0, 90)  # keep peak away from the final reading
+
+        for j in range(95):  # historical curve: readings 0-94 (47h of history)
             ts = now - timedelta(minutes=30 * (95 - j))
-            # Gaussian-ish bump around storm_peak_offset to simulate a rain event
             distance = abs(j - storm_peak_offset)
             storm_factor = max(0, 1 - distance / 20.0)
             water_level = baseline_water + storm_factor * random.uniform(20, 60)
             rainfall = storm_factor * random.uniform(0, 25) + random.uniform(0, 2)
 
             SensorReading.objects.create(
-                station=station,
-                water_level_cm=round(water_level, 1),
-                rainfall_mm=round(rainfall, 1),
-                temperature_c=round(random.uniform(24, 32), 1),
+                station=station, water_level_cm=round(water_level, 1),
+                rainfall_mm=round(rainfall, 1), temperature_c=round(random.uniform(24, 32), 1),
                 battery_voltage=round(random.uniform(3.5, 4.2), 2),
-                signal_strength=random.randint(-90, -50),
-                timestamp=ts,
-                is_verified=True,
+                signal_strength=random.randint(-90, -50), timestamp=ts, is_verified=True,
             )
             count += 1
-    print(f"  SensorReading: {count} readings across {len(stations)} stations (48h history each)")
+
+        # Final reading (index 95, "now") -- deliberately engineered risk ratio.
+        zone_threshold = station.flood_zone.water_level_threshold_cm if station.flood_zone else 50.0
+        designed_ratio = DESIGNED_RATIOS[i % len(DESIGNED_RATIOS)]
+        final_water_level = round(zone_threshold * designed_ratio, 1)
+        final_rainfall = round(max(0.0, (designed_ratio - 0.5) * random.uniform(15, 30)), 1)
+
+        SensorReading.objects.create(
+            station=station, water_level_cm=final_water_level, rainfall_mm=final_rainfall,
+            temperature_c=round(random.uniform(24, 32), 1), battery_voltage=round(random.uniform(3.5, 4.2), 2),
+            signal_strength=random.randint(-90, -50), timestamp=now, is_verified=True,
+        )
+        count += 1
+
+        # Keep the station's last_reading_at in sync with this final reading
+        # so SensorStation.latest_reading() / is_stale work as expected.
+        station.last_reading_at = now
+        station.save(update_fields=["last_reading_at"])
+
+    print(f"  SensorReading: {count} readings across {len(stations)} stations "
+          f"(48h history + designed current risk spread: RED/ORANGE/YELLOW/GREEN)")
     return count
 
 
