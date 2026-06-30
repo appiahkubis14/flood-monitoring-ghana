@@ -31,33 +31,195 @@
 
      <div class="wrapper">
 
-          <header class="topbar">
+          <!-- ══════════════════════════════════════════════════════════════
+               Single merged top navbar: pinned brand (left) + scrollable
+               nav-link groups (middle) + pinned action controls (right).
+               Self-contained CSS rather than relying on Larkon's bundled
+               .topbar/.topbar-button styles, which are scoped under a
+               <header class="topbar"> parent selector that no longer wraps
+               these controls now that everything lives in one <nav> —
+               those rules would silently fail to match here.
+               ══════════════════════════════════════════════════════════ -->
+          <style>
+               .main-nav { display: none !important; }
+               .page-content { margin-left: 0 !important; padding-top: 0; }
+
+               .fw-topnav {
+                    background: #fff; border-bottom: 1px solid #eef2f6;
+                    position: relative; z-index: 999;
+                    box-shadow: 0 2px 8px rgba(11,61,92,0.05);
+               }
+               [data-bs-theme="dark"] .fw-topnav { background: #1e2128; border-color: #2a2e38; }
+
+               .fw-topnav-row {
+                    display: flex; align-items: center; gap: 14px;
+                    height: 66px;
+               }
+
+               /* ── Pinned brand (never scrolls away) ───────────────────── */
+               .fw-topnav-brand {
+                    display: flex; align-items: center; gap: 9px; flex-shrink: 0;
+                    text-decoration: none; padding-right: 14px;
+                    border-right: 1px solid #eef2f6;
+               }
+               [data-bs-theme="dark"] .fw-topnav-brand { border-color: #2a2e38; }
+               .fw-topnav-brand iconify-icon { font-size: 26px; color: #0E7490; flex-shrink: 0; }
+               .fw-topnav-brand-text {
+                    font-weight: 700; font-size: 15.5px; text-transform: uppercase;
+                    letter-spacing: 0.3px; color: #0B3D5C; white-space: nowrap;
+               }
+               [data-bs-theme="dark"] .fw-topnav-brand-text { color: #e2e8f0; }
+               @media (max-width: 575.98px) { .fw-topnav-brand-text { display: none; } }
+
+               /* ── Scrollable nav-link groups (middle, flexible) ───────── */
+               .fw-topnav-scroll {
+                    flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden;
+                    scrollbar-width: thin;
+               }
+               .fw-topnav-scroll::-webkit-scrollbar { height: 4px; }
+               .fw-topnav-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+               .fw-topnav-inner { display: flex; align-items: center; gap: 4px; }
+
+               .fw-topnav-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+               .fw-topnav-group + .fw-topnav-group {
+                    border-left: 1px solid #eef2f6; padding-left: 14px; margin-left: 6px;
+               }
+               [data-bs-theme="dark"] .fw-topnav-group + .fw-topnav-group { border-color: #2a2e38; }
+
+               .fw-topnav-label {
+                    font-size: 10px; font-weight: 700; text-transform: uppercase;
+                    color: #94a3b8; letter-spacing: 0.5px; margin-right: 6px; flex-shrink: 0;
+               }
+
+               .fw-topnav-link {
+                    display: flex; align-items: center; gap: 7px; white-space: nowrap;
+                    padding: 8px 14px; border-radius: 10px; font-size: 13.5px; font-weight: 500;
+                    color: #475569; text-decoration: none; transition: all 0.15s ease;
+               }
+               .fw-topnav-link:hover { background: #f0f9ff; color: #0E7490; }
+               .fw-topnav-link.active { background: #0B3D5C; color: #fff; }
+               .fw-topnav-link.active:hover { color: #fff; }
+               .fw-topnav-link iconify-icon { font-size: 18px; flex-shrink: 0; }
+               [data-bs-theme="dark"] .fw-topnav-link { color: #cbd5e1; }
+               [data-bs-theme="dark"] .fw-topnav-link:hover { background: #283041; color: #38bdf8; }
+
+               /* ── Pinned action controls (never scrolls away) ──────────── */
+               .fw-topnav-actions {
+                    display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+                    padding-left: 14px; border-left: 1px solid #eef2f6;
+               }
+               [data-bs-theme="dark"] .fw-topnav-actions { border-color: #2a2e38; }
+
+               .fw-action-btn {
+                    width: 38px; height: 38px; border: none; border-radius: 50%;
+                    background: transparent; color: #475569; display: flex;
+                    align-items: center; justify-content: center; cursor: pointer;
+                    transition: all 0.15s ease; position: relative; flex-shrink: 0;
+               }
+               .fw-action-btn:hover { background: #f0f9ff; color: #0E7490; }
+               .fw-action-btn iconify-icon { font-size: 21px; }
+               [data-bs-theme="dark"] .fw-action-btn { color: #cbd5e1; }
+               [data-bs-theme="dark"] .fw-action-btn:hover { background: #283041; color: #38bdf8; }
+
+               .fw-action-badge {
+                    position: absolute; top: 5px; right: 5px; min-width: 16px; height: 16px;
+                    border-radius: 8px; background: #ef4444; color: #fff; font-size: 9.5px;
+                    font-weight: 700; display: flex; align-items: center; justify-content: center;
+                    padding: 0 3px; border: 2px solid #fff;
+               }
+               [data-bs-theme="dark"] .fw-action-badge { border-color: #1e2128; }
+
+               .fw-user-trigger {
+                    display: flex; align-items: center; gap: 9px; border: none; background: transparent;
+                    padding: 6px 12px 6px 6px; border-radius: 50px; cursor: pointer; transition: all 0.15s ease;
+               }
+               .fw-user-trigger:hover { background: #f0f9ff; }
+               [data-bs-theme="dark"] .fw-user-trigger:hover { background: #283041; }
+               .fw-user-avatar {
+                    width: 30px; height: 30px; border-radius: 50%; background: #0B3D5C;
+                    color: #fff; display: flex; align-items: center; justify-content: center;
+                    font-size: 18px; flex-shrink: 0;
+               }
+               .fw-user-name { font-size: 13px; font-weight: 600; color: #334155; white-space: nowrap; }
+               [data-bs-theme="dark"] .fw-user-name { color: #e2e8f0; }
+               @media (max-width: 767.98px) { .fw-user-name { display: none; } }
+
+               @media (max-width: 991.98px) {
+                    .fw-topnav-label { display: none; }
+                    .fw-topnav-link span { display: none; }
+                    .fw-topnav-link { padding: 8px 10px; }
+                    .fw-topnav-group + .fw-topnav-group { padding-left: 8px; margin-left: 2px; }
+               }
+          </style>
+
+          <nav class="fw-topnav">
                <div class="container-fluid">
-                    <div class="navbar-header">
-                         <div class="d-flex align-items-center">
-                              <div class="topbar-item">
-                                   <button type="button" class="button-toggle-menu me-2">
-                                        <iconify-icon icon="solar:hamburger-menu-broken" class="fs-24 align-middle"></iconify-icon>
-                                   </button>
-                              </div>
-                              <div class="topbar-item">
-                                   <h4 class="fw-bold topbar-button pe-none text-uppercase mb-0">FloodWatch Ghana</h4>
+                    <div class="fw-topnav-row">
+
+                         <!-- Brand — pinned, always visible -->
+                         <a href="{% url 'dashboard:index' %}" class="fw-topnav-brand">
+                              <iconify-icon icon="solar:waterdrops-bold-duotone"></iconify-icon>
+                              <span class="fw-topnav-brand-text">FloodWatch Ghana</span>
+                         </a>
+
+                         <!-- Nav-link groups — scrollable on narrow screens -->
+                         <div class="fw-topnav-scroll">
+                              <div class="fw-topnav-inner">
+                                   <div class="fw-topnav-group">
+                                        <span class="fw-topnav-label">Monitoring</span>
+                                        <a class="fw-topnav-link {% if active_nav == 'dashboard' %}active{% endif %}" href="{% url 'dashboard:index' %}">
+                                             <iconify-icon icon="solar:home-2-bold-duotone"></iconify-icon><span>Dashboard</span>
+                                        </a>
+                                        <a class="fw-topnav-link {% if active_nav == 'map' %}active{% endif %}" href="{% url 'dashboard:map' %}">
+                                             <iconify-icon icon="solar:map-point-wave-bold-duotone"></iconify-icon><span>Live Map</span>
+                                        </a>
+                                        <a class="fw-topnav-link {% if active_nav == 'sensors' %}active{% endif %}" href="{% url 'dashboard:sensors' %}">
+                                             <iconify-icon icon="solar:cpu-bolt-bold-duotone"></iconify-icon><span>Sensor Stations</span>
+                                        </a>
+                                        <a class="fw-topnav-link {% if active_nav == 'flood_maps' %}active{% endif %}" href="{% url 'dashboard:flood_maps' %}">
+                                             <iconify-icon icon="solar:satellite-bold-duotone"></iconify-icon><span>Satellite Flood Maps</span>
+                                        </a>
+                                        <a class="fw-topnav-link {% if active_nav == 'weather' %}active{% endif %}" href="{% url 'dashboard:weather' %}">
+                                             <iconify-icon icon="solar:cloud-rain-bold-duotone"></iconify-icon><span>Weather Forecast</span>
+                                        </a>
+                                   </div>
+
+                                   <div class="fw-topnav-group">
+                                        <span class="fw-topnav-label">Response</span>
+                                        <a class="fw-topnav-link {% if active_nav == 'alerts' %}active{% endif %}" href="{% url 'dashboard:alerts' %}">
+                                             <iconify-icon icon="solar:siren-bold-duotone"></iconify-icon><span>Alerts</span>
+                                        </a>
+                                        <a class="fw-topnav-link {% if active_nav == 'reports' %}active{% endif %}" href="{% url 'dashboard:reports' %}">
+                                             <iconify-icon icon="solar:document-text-bold-duotone"></iconify-icon><span>Community Reports</span>
+                                        </a>
+                                   </div>
+
+                                   {% if user.is_staff %}
+                                   <div class="fw-topnav-group">
+                                        <span class="fw-topnav-label">Admin</span>
+                                        <a class="fw-topnav-link {% if active_nav == 'settings' %}active{% endif %}" href="{% url 'dashboard:settings' %}">
+                                             <iconify-icon icon="solar:settings-bold-duotone"></iconify-icon><span>Thresholds &amp; Settings</span>
+                                        </a>
+                                        <a class="fw-topnav-link" href="{% url 'admin:index' %}">
+                                             <iconify-icon icon="solar:shield-keyhole-bold-duotone"></iconify-icon><span>Django Admin</span>
+                                        </a>
+                                   </div>
+                                   {% endif %}
                               </div>
                          </div>
 
-                         <div class="d-flex align-items-center gap-1">
-                              <div class="topbar-item">
-                                   <button type="button" class="topbar-button" id="light-dark-mode">
-                                        <iconify-icon icon="solar:moon-bold-duotone" class="fs-24 align-middle"></iconify-icon>
-                                   </button>
-                              </div>
+                         <!-- Action controls — pinned, always visible -->
+                         <div class="fw-topnav-actions">
+                              <button type="button" class="fw-action-btn" id="light-dark-mode" title="Toggle dark mode">
+                                   <iconify-icon icon="solar:moon-bold-duotone"></iconify-icon>
+                              </button>
 
-                              <div class="dropdown topbar-item">
-                                   <button type="button" class="topbar-button position-relative" id="alerts-bell"
-                                           data-bs-toggle="dropdown" aria-expanded="false">
-                                        <iconify-icon icon="solar:bell-bing-bold-duotone" class="fs-24 align-middle"></iconify-icon>
-                                        <span class="position-absolute topbar-badge fs-10 translate-middle badge bg-danger rounded-pill"
-                                              id="live-alert-count">0</span>
+                              <div class="dropdown">
+                                   <button type="button" class="fw-action-btn" id="alerts-bell"
+                                           data-bs-toggle="dropdown" aria-expanded="false" title="Live alerts">
+                                        <iconify-icon icon="solar:bell-bing-bold-duotone"></iconify-icon>
+                                        <span class="fw-action-badge" id="live-alert-count">0</span>
                                    </button>
                                    <div class="dropdown-menu py-0 dropdown-lg dropdown-menu-end" id="live-alert-dropdown">
                                         <div class="p-3 border-bottom"><h6 class="m-0 fs-16 fw-semibold">Live Alerts</h6></div>
@@ -68,12 +230,10 @@
                               </div>
 
                               {% if user.is_authenticated %}
-                              <div class="dropdown topbar-item">
-                                   <button type="button" class="topbar-button" data-bs-toggle="dropdown">
-                                        <span class="d-flex align-items-center gap-2">
-                                             <iconify-icon icon="solar:user-circle-bold-duotone" class="fs-24"></iconify-icon>
-                                             <span class="d-none d-md-inline">{{ user.get_full_name|default:user.username }}</span>
-                                        </span>
+                              <div class="dropdown">
+                                   <button type="button" class="fw-user-trigger" data-bs-toggle="dropdown">
+                                        <span class="fw-user-avatar"><iconify-icon icon="solar:user-bold-duotone"></iconify-icon></span>
+                                        <span class="fw-user-name">{{ user.get_full_name|default:user.username }}</span>
                                    </button>
                                    <div class="dropdown-menu dropdown-menu-end">
                                         <a class="dropdown-item" href="{% url 'admin:index' %}">
@@ -92,84 +252,10 @@
                               <a href="{% url 'login' %}" class="btn btn-sm btn-primary">Sign In</a>
                               {% endif %}
                          </div>
+
                     </div>
                </div>
-          </header>
-
-          <div class="main-nav">
-               <div class="logo-box">
-                    <a href="{% url 'dashboard:index' %}" class="logo-dark d-flex align-items-center gap-2 px-3">
-                         <iconify-icon icon="solar:waterdrops-bold-duotone" class="fs-28 text-primary"></iconify-icon>
-                         <span class="fw-bold fs-18">FloodWatch</span>
-                    </a>
-               </div>
-
-               <button type="button" class="button-sm-hover" aria-label="Show Full Sidebar">
-                    <iconify-icon icon="solar:double-alt-arrow-right-bold-duotone" class="button-sm-hover-icon"></iconify-icon>
-               </button>
-
-               <div class="scrollbar" data-simplebar>
-                    <ul class="navbar-nav" id="navbar-nav">
-                         <li class="menu-title">Monitoring</li>
-
-                         <li class="nav-item">
-                              <a class="nav-link {% if active_nav == 'dashboard' %}active{% endif %}" href="{% url 'dashboard:index' %}">
-                                   <iconify-icon icon="solar:home-2-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Dashboard</span>
-                              </a>
-                         </li>
-                         <li class="nav-item">
-                              <a class="nav-link {% if active_nav == 'map' %}active{% endif %}" href="{% url 'dashboard:map' %}">
-                                   <iconify-icon icon="solar:map-point-wave-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Live Map</span>
-                              </a>
-                         </li>
-                         <li class="nav-item">
-                              <a class="nav-link {% if active_nav == 'sensors' %}active{% endif %}" href="{% url 'dashboard:sensors' %}">
-                                   <iconify-icon icon="solar:cpu-bolt-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Sensor Stations</span>
-                              </a>
-                         </li>
-                         <li class="nav-item">
-                              <a class="nav-link {% if active_nav == 'flood_maps' %}active{% endif %}" href="{% url 'dashboard:flood_maps' %}">
-                                   <iconify-icon icon="solar:satellite-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Satellite Flood Maps</span>
-                              </a>
-                         </li>
-
-                         <li class="menu-title">Response</li>
-
-                         <li class="nav-item">
-                              <a class="nav-link {% if active_nav == 'alerts' %}active{% endif %}" href="{% url 'dashboard:alerts' %}">
-                                   <iconify-icon icon="solar:siren-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Alerts</span>
-                              </a>
-                         </li>
-                         <li class="nav-item">
-                              <a class="nav-link {% if active_nav == 'reports' %}active{% endif %}" href="{% url 'dashboard:reports' %}">
-                                   <iconify-icon icon="solar:document-text-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Community Reports</span>
-                              </a>
-                         </li>
-
-                         {% if user.is_staff %}
-                         <li class="menu-title">Administration</li>
-                         <li class="nav-item">
-                              <a class="nav-link {% if active_nav == 'settings' %}active{% endif %}" href="{% url 'dashboard:settings' %}">
-                                   <iconify-icon icon="solar:settings-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Thresholds &amp; Settings</span>
-                              </a>
-                         </li>
-                         <li class="nav-item">
-                              <a class="nav-link" href="{% url 'admin:index' %}">
-                                   <iconify-icon icon="solar:shield-keyhole-bold-duotone" class="nav-icon"></iconify-icon>
-                                   <span class="nav-text">Django Admin</span>
-                              </a>
-                         </li>
-                         {% endif %}
-                    </ul>
-               </div>
-          </div>
+          </nav>
 
           <div class="page-content">
                <div class="container-fluid">

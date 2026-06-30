@@ -1,63 +1,157 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Historical Trends — FloodWatch Ghana{% endblock %}
+
+{% block extra_head %}
+<style>
+    .ht-kpi .kpi-value { font-size: 30px; font-weight: 700; line-height: 1; }
+    .ht-kpi .kpi-label { font-size: 13px; color: #94a3b8; }
+    .ht-kpi iconify-icon { font-size: 30px; }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="row mb-3">
-     <div class="col-12">
-          <h4 class="fw-bold mb-1">Historical Flood Trend Analysis</h4>
-          <p class="text-muted mb-0">Digitised historical flood records for Accra</p>
-     </div>
+    <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h4 class="fw-bold mb-1">Historical Flood Trend Analysis</h4>
+            <p class="text-muted mb-0">Digitised flood records for Accra — casualties, displacement &amp; rainfall over time</p>
+        </div>
+        <a href="{% url 'dashboard:flood_maps' %}" class="btn btn-sm btn-outline-primary">Back to Flood Maps</a>
+    </div>
 </div>
 
+<!-- ── KPIs ─────────────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-1">
+    <div class="col-xl-3 col-md-6">
+        <div class="card ht-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-primary" id="ht-kpi-events">—</div><div class="kpi-label">Recorded flood events</div></div>
+            <iconify-icon icon="solar:calendar-mark-bold-duotone" class="text-primary"></iconify-icon>
+        </div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card ht-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-danger" id="ht-kpi-casualties">—</div><div class="kpi-label">Total casualties</div></div>
+            <iconify-icon icon="solar:heart-pulse-bold-duotone" class="text-danger"></iconify-icon>
+        </div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card ht-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-warning" id="ht-kpi-displaced">—</div><div class="kpi-label">People displaced</div></div>
+            <iconify-icon icon="solar:users-group-rounded-bold-duotone" class="text-warning"></iconify-icon>
+        </div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card ht-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-info" id="ht-kpi-worstyear">—</div><div class="kpi-label">Worst year (by casualties)</div></div>
+            <iconify-icon icon="solar:graph-down-bold-duotone" class="text-info"></iconify-icon>
+        </div></div>
+    </div>
+</div>
+
+<!-- ── Charts ───────────────────────────────────────────────────────────── -->
+<div class="row">
+    <div class="col-xl-8 mb-3">
+        <div class="card h-100"><div class="card-body">
+            <h5 class="card-title mb-3">Casualties &amp; Displacement Over Time</h5>
+            <div id="ht-chart-impact" style="min-height:320px;"></div>
+        </div></div>
+    </div>
+    <div class="col-xl-4 mb-3">
+        <div class="card h-100"><div class="card-body">
+            <h5 class="card-title mb-3">Events per Year</h5>
+            <div id="ht-chart-yearly" style="min-height:320px;"></div>
+        </div></div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12 mb-3">
+        <div class="card"><div class="card-body">
+            <h5 class="card-title mb-3">Rainfall vs Human Impact</h5>
+            <p class="text-muted small">Each point is a recorded flood event: rainfall (x) against displaced persons (bubble size = affected area).</p>
+            <div id="ht-chart-rainfall-impact" style="min-height:320px;"></div>
+        </div></div>
+    </div>
+</div>
+
+<!-- ── Records table (server-rendered, no-JS fallback) ──────────────────── -->
 <div class="card">
-     <div class="card-header"><h5 class="card-title mb-0">Casualties &amp; Displacement Over Time</h5></div>
-     <div class="card-body"><div id="historical-chart" style="height: 320px;"></div></div>
-</div>
-
-<div class="card mt-3">
-     <div class="card-body p-0">
-          <div class="table-responsive">
-               <table class="table table-hover mb-0">
-                    <thead><tr><th>Date</th><th>Zone</th><th>Severity</th><th>Rainfall</th><th>Affected Area</th><th>Casualties</th><th>Displaced</th></tr></thead>
-                    <tbody>
-                         {% for r in historical_records %}
-                         <tr>
-                              <td>{{ r.event_date }}</td>
-                              <td>{{ r.flood_zone.name|default:"Accra-wide" }}</td>
-                              <td><span class="badge bg-{% if r.severity == 'red' %}danger{% elif r.severity == 'orange' %}warning{% else %}info{% endif %}">{{ r.get_severity_display }}</span></td>
-                              <td>{{ r.rainfall_mm|default:"—" }} mm</td>
-                              <td>{{ r.affected_area_ha|default:"—" }} ha</td>
-                              <td>{{ r.casualties }}</td>
-                              <td>{{ r.displaced_persons }}</td>
-                         </tr>
-                         {% empty %}
-                         <tr><td colspan="7" class="text-muted text-center py-3">No historical records loaded yet</td></tr>
-                         {% endfor %}
-                    </tbody>
-               </table>
-          </div>
-     </div>
+    <div class="card-header"><h5 class="card-title mb-0">Detailed Records</h5></div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead><tr><th>Date</th><th>Zone</th><th>Severity</th><th>Rainfall</th><th>Affected Area</th><th>Casualties</th><th>Displaced</th><th>Source</th></tr></thead>
+                <tbody>
+                    {% for r in historical_records %}
+                    <tr>
+                        <td>{{ r.event_date }}</td>
+                        <td>{{ r.flood_zone.name|default:"Accra-wide" }}</td>
+                        <td><span class="badge bg-{% if r.severity == 'red' %}danger{% elif r.severity == 'orange' %}warning{% else %}info{% endif %}">{{ r.get_severity_display }}</span></td>
+                        <td>{{ r.rainfall_mm|default:"—" }} mm</td>
+                        <td>{{ r.affected_area_ha|default:"—" }} ha</td>
+                        <td>{{ r.casualties }}</td>
+                        <td>{{ r.displaced_persons }}</td>
+                        <td class="fs-12 text-muted">{{ r.source|default:"—"|truncatechars:30 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-muted text-center py-3">No historical records loaded yet</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    const records = [
-        {% for r in historical_records %}
-        {date: "{{ r.event_date|date:'Y-m-d' }}", casualties: {{ r.casualties }}, displaced: {{ r.displaced_persons }}},
-        {% endfor %}
-    ].reverse();
-    new ApexCharts(document.querySelector("#historical-chart"), {
-        chart: {type: "line", height: 320, toolbar: {show: true}},
-        series: [
-            {name: "Casualties", data: records.map(r => r.casualties)},
-            {name: "Displaced Persons", data: records.map(r => r.displaced)},
-        ],
-        xaxis: {categories: records.map(r => r.date)},
-        colors: ["#ef4444", "#f97316"],
-        stroke: {curve: "smooth", width: 2},
-    }).render();
+    function fmt(v){ return (v===null||v===undefined||isNaN(v))?"—":Number(v).toLocaleString(); }
+
+    fetch("/api/dashboard/stats/historical-flood-trend/").then(r => r.json()).then(data => {
+        // KPIs
+        document.getElementById("ht-kpi-events").textContent = fmt(data.totals.total_events);
+        document.getElementById("ht-kpi-casualties").textContent = fmt(data.totals.total_casualties);
+        document.getElementById("ht-kpi-displaced").textContent = fmt(data.totals.total_displaced);
+        const yc = data.yearly;
+        let worstYear = "—", worstVal = -1;
+        yc.years.forEach((y, i) => { if (yc.casualties[i] > worstVal) { worstVal = yc.casualties[i]; worstYear = y; } });
+        document.getElementById("ht-kpi-worstyear").textContent = worstYear;
+
+        // Impact over time (per-event line)
+        const pts = data.points;
+        new ApexCharts(document.querySelector("#ht-chart-impact"), {
+            chart:{type:"line", height:320, toolbar:{show:true}, animations:{enabled:false}},
+            series:[
+                {name:"Casualties", data: pts.map(p => p.casualties)},
+                {name:"Displaced", data: pts.map(p => p.displaced_persons)},
+            ],
+            xaxis:{categories: pts.map(p => p.date), tickAmount:10, labels:{style:{fontSize:"10px"}}},
+            colors:["#ef4444","#f97316"], stroke:{curve:"smooth", width:2}, dataLabels:{enabled:false},
+            legend:{position:"top"},
+        }).render();
+
+        // Events per year (bar)
+        new ApexCharts(document.querySelector("#ht-chart-yearly"), {
+            chart:{type:"bar", height:320, toolbar:{show:false}},
+            series:[{name:"Events", data: yc.events}],
+            xaxis:{categories: yc.years},
+            colors:["#0ea5e9"], plotOptions:{bar:{borderRadius:4, columnWidth:"55%"}}, dataLabels:{enabled:true},
+        }).render();
+
+        // Rainfall vs impact (bubble)
+        const bubbles = pts.filter(p => p.rainfall_mm != null).map(p => ({
+            x: p.rainfall_mm, y: p.displaced_persons, z: Math.max(p.affected_area_ha || 5, 5),
+        }));
+        new ApexCharts(document.querySelector("#ht-chart-rainfall-impact"), {
+            chart:{type:"bubble", height:320, toolbar:{show:true}},
+            series:[{name:"Flood events", data: bubbles}],
+            xaxis:{title:{text:"Rainfall (mm)"}, tickAmount:8},
+            yaxis:{title:{text:"Displaced persons"}},
+            colors:["#0E7490"], fill:{opacity:0.7}, dataLabels:{enabled:false},
+        }).render();
+    }).catch(() => console.warn("Could not load historical flood trend data"));
 });
 </script>
 {% endblock %}

@@ -16,4 +16,10 @@ urlpatterns = [
     path("dashboard/stats/map-heatmap/", api_views.map_heatmap_points, name="dashboard-stats-heatmap"),
     path("dashboard/stats/station/<int:station_id>/detail/", api_views.station_detail_stats, name="dashboard-stats-station-detail"),
     path("dashboard/stats/zone-risk-scores/", api_views.zone_risk_scores, name="dashboard-stats-zone-risk-scores"),
+    path("dashboard/weather/forecast/", api_views.weather_forecast, name="dashboard-weather-forecast"),
+    path("dashboard/weather/zone-rainfall/", api_views.weather_zone_rainfall, name="dashboard-weather-zone-rainfall"),
+    path("dashboard/stats/satellite/overview/", api_views.satellite_overview, name="dashboard-stats-satellite-overview"),
+    path("dashboard/stats/satellite/flood-area-trend/", api_views.satellite_flood_area_trend, name="dashboard-stats-satellite-area-trend"),
+    path("dashboard/stats/satellite/area-by-zone/", api_views.satellite_area_by_zone, name="dashboard-stats-satellite-area-by-zone"),
+    path("dashboard/stats/historical-flood-trend/", api_views.historical_flood_trend, name="dashboard-stats-historical-trend"),
 ]

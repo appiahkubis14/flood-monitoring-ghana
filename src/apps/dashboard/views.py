@@ -98,6 +98,24 @@ class ReportsView(View):
         return render(request, "dashboard/reports.html", context)
 
 
+class WeatherView(View):
+    """GET /dashboard/weather/ — live weather + rainfall-forecast page.
+
+    Rainfall is the leading indicator of flash flooding in Accra, so this
+    page is the system's *forward-looking* counterpart to the satellite
+    flood maps (which show standing water now). The page shell renders
+    server-side; all live data is loaded client-side from the weather API
+    so it can auto-refresh on an interval without a full page reload.
+    """
+
+    def get(self, request):
+        context = {
+            "active_nav": "weather",
+            "accra_center": {"lat": 5.60, "lon": -0.20},
+        }
+        return render(request, "dashboard/weather.html", context)
+
+
 @login_required
 def settings_view(request):
     """GET /dashboard/settings/ — threshold + system configuration

@@ -60,15 +60,30 @@ class SatelliteProcessor:
     """
 
     def __init__(self) -> None:
-        from pygeovision import PyGeoVision
-
-        self.client = PyGeoVision()
         self.bbox = settings.ACCRA_BBOX
         self.data_dir = Path(settings.PYGEOVISION_DATA_DIR)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.s2_bands = settings.PYGEOVISION_S2_BANDS
         self.providers = settings.PYGEOVISION_PROVIDERS
         self.cloud_cover_max = settings.PYGEOVISION_CLOUD_COVER_MAX
+        self._client = None
+
+    @property
+    def client(self):
+        """Lazily construct the PyGeoVision client on first use.
+
+        Constructing the client imports pygeovision and sets up provider
+        connections, which is only needed for the search/download/preprocess
+        steps. DB-only operations on this class -- notably the hourly
+        ``update_flood_risk_zones`` Celery beat task -- must keep running even
+        on a node where pygeovision isn't installed, so the import is deferred
+        to here rather than ``__init__``.
+        """
+        if self._client is None:
+            from pygeovision import PyGeoVision
+
+            self._client = PyGeoVision()
+        return self._client
 
     # ── Top-level entry point ─────────────────────────────────────────────
 
@@ -109,8 +124,16 @@ class SatelliteProcessor:
                     cloud_cover_max=self.cloud_cover_max if source == SatelliteSource.SENTINEL2 else 100,
                 )
                 if satellites:
-                    kwargs["satellites"] = satellites
-                results = self.client.search(**kwargs)
+                    # PyGeoVision has used both ``satellite=`` (singular) and
+                    # ``satellites=`` (plural) for this filter across its
+                    # examples; try the plural form first and fall back to the
+                    # singular on a TypeError so we work against either build.
+                    try:
+                        results = self.client.search(satellites=satellites, **kwargs)
+                    except TypeError:
+                        results = self.client.search(satellite=satellites, **kwargs)
+                else:
+                    results = self.client.search(**kwargs)
             except Exception:
                 logger.exception("Satellite search failed for source=%s", source)
                 continue
@@ -206,7 +229,7 @@ class SatelliteProcessor:
 
         try:
             scl_path = self._find_scl_path(raw_path)
-            result = self.client.prepare_for_ai(
+            self.client.prepare_for_ai(
                 str(raw_path),
                 stack_bands=self.s2_bands,
                 bbox=self.bbox,
@@ -220,11 +243,28 @@ class SatelliteProcessor:
         except Exception as exc:
             raise SatelliteProcessingError(f"prepare_for_ai failed: {exc}") from exc
 
+        if not preprocessed_path.exists():
+            raise SatelliteProcessingError(
+                "prepare_for_ai returned without writing the expected output GeoTIFF"
+            )
+
         scene.preprocessed_path = str(preprocessed_path)
         scene.status = SceneStatus.PROCESSED
         scene.save(update_fields=["preprocessed_path", "status"])
 
-        self._detect_floods(scene, result["array"], preprocessed_path)
+        # Read the preprocessed band stack back from the GeoTIFF that
+        # prepare_for_ai just wrote, rather than depending on an in-memory
+        # array key in its return value. prepare_for_ai's documented return
+        # is a small metadata dict (shape, etc.) -- the full normalised band
+        # stack always lives in the output_path raster, so reading it here is
+        # both the authoritative source and resilient to the return-dict
+        # shape changing across pygeovision versions.
+        import rasterio
+
+        with rasterio.open(str(preprocessed_path)) as src:
+            stack = src.read()  # (bands, H, W), matches indices.py band order
+
+        self._detect_floods(scene, stack, preprocessed_path)
 
     def _scene_id_to_search_result(self, scene: SatelliteScene):
         """PyGeoVision's ``download()`` expects SearchResult objects from

@@ -1,298 +1,761 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}Live Map — FloodWatch Ghana{% endblock %}
+{% block title %}Live Risk Map — FloodWatch Ghana{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-fullscreen@1.0.2/dist/leaflet.fullscreen.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 <style>
-    .fw-map-shell { position: relative; height: 80vh; min-height: 560px; }
-    .fw-map-canvas { height: 100%; width: 100%; border-radius: 0.5rem; }
-    .fw-map-sidebar {
-        position: absolute; top: 12px; right: 12px; bottom: 12px; width: 320px;
-        background: rgba(255,255,255,0.97); border-radius: 0.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-        overflow-y: auto; z-index: 900; padding: 1rem;
+    /* ========== GLOBAL MAP WRAPPER ========== */
+    #mapWrapper {
+        position: relative;
+        width: 100%;
+        height: calc(100vh - 170px);
+        min-height: 560px;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        background: #f5f7fa;
     }
-    [data-bs-theme="dark"] .fw-map-sidebar { background: rgba(30,33,40,0.97); color: #e9ecef; }
-    .fw-risk-bar { height: 8px; border-radius: 4px; background: #e5e7eb; overflow: hidden; }
-    .fw-risk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
-    .fw-legend-swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; margin-right: 6px; vertical-align: middle; }
-    .fw-popup-stat { display: flex; justify-content: space-between; font-size: 12.5px; padding: 2px 0; }
-    .fw-popup-stat span:first-child { color: #6b7280; }
-    .fw-trend-rising { color: #ef4444; }
-    .fw-trend-falling { color: #22c55e; }
-    .fw-trend-steady { color: #6b7280; }
-    .leaflet-popup-content { margin: 10px 14px; min-width: 220px; }
-    .fw-zone-risk-row { cursor: pointer; padding: 6px 8px; border-radius: 6px; }
-    .fw-zone-risk-row:hover { background: rgba(14,165,233,0.08); }
+    #map { height: 100%; width: 100%; z-index: 1; }
+
+    /* ========== FLOATING CIRCULAR CONTROLS ========== */
+    .map-controls {
+        position: absolute; top: 20px; right: 20px; z-index: 1000;
+        display: flex; flex-direction: column; gap: 12px;
+    }
+    .map-control-btn {
+        width: 45px; height: 45px; border: none; border-radius: 50%;
+        background: white; display: flex; align-items: center; justify-content: center;
+        cursor: pointer; transition: all 0.25s ease; color: #0B3D5C; font-size: 1.15rem;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); position: relative;
+    }
+    .map-control-btn:hover { background: #0B3D5C; color: white; transform: scale(1.05); }
+    .map-control-btn .ctrl-dot {
+        position: absolute; top: -2px; right: -2px; width: 11px; height: 11px;
+        border-radius: 50%; background: #ef4444; border: 2px solid white; display: none;
+    }
+    .map-control-btn.has-active .ctrl-dot { display: block; }
+
+    /* ========== SEARCH BAR ========== */
+    .search-box { position: absolute; top: 20px; left: 50px; z-index: 1000; width: 340px; }
+    .search-box .input-group { background: white; border-radius: 50px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .search-box input { border: none; padding: 12px 18px; font-size: 0.9rem; }
+    .search-box input:focus { outline: none; box-shadow: none; }
+    .search-box button { background: #0B3D5C; border: none; color: white; padding: 0 22px; }
+    #searchResults { background: white; border-radius: 16px; margin-top: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); max-height: 360px; overflow-y: auto; }
+    .search-result-item { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.2s; }
+    .search-result-item:hover { background: #f0f9ff; }
+    .search-result-badge { font-size: 10px; padding: 1px 7px; border-radius: 10px; color: white; margin-left: 8px; }
+
+    /* ========== SHARED PANEL STYLES ========== */
+    .fw-panel {
+        position: absolute; top: 80px; right: 80px; z-index: 1000;
+        background: white; border-radius: 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        width: 290px; display: none; border: 1px solid #eef2f6;
+    }
+    .fw-panel .panel-header {
+        background: linear-gradient(135deg, #0B3D5C 0%, #0E7490 100%);
+        color: white; padding: 14px 18px; border-radius: 18px 18px 0 0;
+        font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: grab;
+    }
+    .fw-panel .panel-header:active { cursor: grabbing; }
+    .fw-panel .panel-body { padding: 14px; max-height: 460px; overflow-y: auto; }
+    .panel-close-btn {
+        background: rgba(255,255,255,0.18); border: none; color: white; width: 24px; height: 24px;
+        border-radius: 50%; cursor: pointer; font-size: 13px; line-height: 1;
+        display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.2s;
+    }
+    .panel-close-btn:hover { background: rgba(255,255,255,0.32); }
+
+    /* Toggle switch */
+    .switch { position: relative; display: inline-block; width: 42px; height: 22px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top:0; left:0; right:0; bottom:0; background-color: #ccc; transition: .3s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+    input:checked + .slider { background-color: #0E7490; }
+    input:checked + .slider:before { transform: translateX(20px); }
+
+    /* ========== RISK AREAS PANEL ========== */
+    .risk-item {
+        padding: 10px 12px; margin-bottom: 8px; border-radius: 12px; cursor: pointer;
+        transition: all 0.2s; border: 1px solid #f0f2f5;
+    }
+    .risk-item:hover { background: #f0f9ff; border-color: #bae6fd; }
+    .risk-item-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .risk-item-name { font-weight: 600; font-size: 12.5px; color: #1f2937; }
+    .risk-score-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 10px; color: white; }
+    .risk-bar { height: 7px; border-radius: 4px; background: #e5e7eb; overflow: hidden; }
+    .risk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+    .risk-item-meta { font-size: 10.5px; color: #6b7280; margin-top: 4px; }
+
+    /* ========== LAYER TOGGLE LIST ========== */
+    .layer-toggle { display: flex; justify-content: space-between; align-items: center; padding: 10px 2px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    .layer-toggle:last-child { border-bottom: none; }
+    .layer-toggle-label { display: flex; align-items: center; gap: 10px; }
+    .layer-swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+
+    /* ========== STATS PANEL (bottom-left) ========== */
+    .stats-panel {
+        position: absolute; bottom: 20px; left: 20px; z-index: 1000;
+        background: rgba(255,255,255,0.97); backdrop-filter: blur(8px);
+        padding: 16px 20px; border-radius: 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+        width: 270px; display: none; border: 1px solid rgba(11,61,92,0.15);
+    }
+    .stats-panel h6 {
+        margin: 0 0 14px 0; font-weight: 700; color: #0B3D5C; border-left: 4px solid #0E7490;
+        padding-left: 12px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .stats-panel .panel-close-btn { background: rgba(11,61,92,0.10); color: #0B3D5C; }
+    .stats-panel .panel-close-btn:hover { background: rgba(11,61,92,0.22); }
+    .stats-card { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed #e5e7eb; font-size: 12.5px; }
+    .stats-number { font-size: 1.25rem; font-weight: 700; color: #0E7490; }
+    .stats-label { font-size: 0.72rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; }
+
+    /* ========== LEGEND PANEL (bottom-right) ========== */
+    .legend-panel { position: absolute; bottom: 20px; right: 80px; z-index: 1000; width: 230px; }
+    .legend-item { display: flex; align-items: center; gap: 12px; padding: 7px 0; font-size: 12.5px; }
+    .legend-color { width: 28px; height: 18px; border-radius: 4px; flex-shrink: 0; }
+    .legend-icon { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 16px; background: #f5f5f5; border-radius: 8px; flex-shrink: 0; }
+    .legend-divider { height: 1px; background: #eef2f6; margin: 8px 0; }
+    .legend-item span { color: #374151; flex: 1; }
+
+    /* ========== COMPARE PANEL ========== */
+    .compare-divider-label { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin: 6px 0; }
+    .compare-divider-label::before, .compare-divider-label::after { content: ''; flex: 1; border-top: 1px solid #e2e8f0; }
+    .fw-select { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 12.5px; outline: none; }
+    .fw-select:focus { border-color: #0E7490; }
+    .compare-result-row { display: flex; justify-content: space-between; font-size: 12px; padding: 5px 0; border-bottom: 1px dashed #e5e7eb; }
+    .compare-result-row span:first-child { color: #6b7280; }
+    #compareStatus { font-size: 11px; color: #0E7490; text-align: center; min-height: 16px; padding-top: 4px; }
+
+    /* ========== MOUSE COORDINATES ========== */
+    #mouseCoords {
+        position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 1001;
+        background: rgba(11,30,46,0.85); color: #bae6fd; font-size: 11px; font-family: 'Courier New', monospace;
+        padding: 4px 14px; border-radius: 8px 8px 0 0; backdrop-filter: blur(4px);
+        border: 1px solid rgba(255,255,255,0.08); border-bottom: none; letter-spacing: 0.4px; pointer-events: none; white-space: nowrap;
+    }
+
+    /* ========== CUSTOM POPUP STYLES ========== */
+    .custom-popup .leaflet-popup-content-wrapper { border-radius: 14px; padding: 0; overflow: hidden; }
+    .custom-popup .leaflet-popup-content { margin: 0; padding: 0; min-width: 230px; }
+    .popup-header { background: linear-gradient(135deg, #0B3D5C 0%, #0E7490 100%); color: white; padding: 11px 15px; font-weight: 600; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; }
+    .popup-body { padding: 14px; }
+    .popup-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f0f0f0; font-size: 12.5px; }
+    .popup-row:last-of-type { border-bottom: none; }
+    .popup-label { color: #6b7280; }
+    .popup-value { font-weight: 600; color: #0B3D5C; }
+    .popup-risk-bar { height: 7px; border-radius: 4px; background: #e5e7eb; overflow: hidden; margin-top: 6px; }
+    .popup-risk-fill { height: 100%; border-radius: 4px; }
+    .btn-detail { background: #0B3D5C; color: white; border: none; padding: 8px; width: 100%; border-radius: 8px; margin-top: 10px; cursor: pointer; transition: background 0.2s; font-size: 12.5px; }
+    .btn-detail:hover { background: #0E7490; }
+
+    .trend-rising { color: #ef4444; } .trend-falling { color: #22c55e; } .trend-steady { color: #6b7280; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="row mb-3">
-     <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <div>
-               <h4 class="fw-bold mb-1">Live Map</h4>
-               <p class="text-muted mb-0">Sensors, flood risk zones, satellite extent, and live risk-intensity heatmap</p>
-          </div>
-          <div class="d-flex gap-3 flex-wrap fs-13">
-               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-heatmap" checked> <iconify-icon icon="solar:fire-bold-duotone" class="text-danger"></iconify-icon> Risk Heatmap</label>
-               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-sensors" checked> <iconify-icon icon="solar:cpu-bolt-bold-duotone" class="text-primary"></iconify-icon> Sensors</label>
-               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-zones" checked> <iconify-icon icon="solar:map-point-wave-bold-duotone" class="text-warning"></iconify-icon> Flood Zones</label>
-               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-floodmaps" checked> <iconify-icon icon="solar:satellite-bold-duotone" class="text-info"></iconify-icon> Flood Extent</label>
-               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-reports" checked> <iconify-icon icon="solar:document-text-bold-duotone" class="text-secondary"></iconify-icon> Community Reports</label>
-          </div>
+<div class="row mb-2">
+     <div class="col-12">
+          <h4 class="fw-bold mb-1">Live Risk Map</h4>
+          <p class="text-muted mb-0">Interactive flood risk intelligence — sensors, risk zones, satellite extent, and live alerts for decision-makers</p>
      </div>
 </div>
 
-<div class="card">
-     <div class="card-body p-0">
-          <div class="fw-map-shell">
-               <div id="full-map" class="fw-map-canvas"></div>
+<div id="mapWrapper">
+    <div id="map"></div>
+    <div id="mouseCoords">Lat: —&nbsp;&nbsp;Lng: —</div>
 
-               <div class="fw-map-sidebar" id="map-sidebar">
-                    <h6 class="fw-bold mb-2">Zone Risk Ranking</h6>
-                    <p class="fs-12 text-muted mb-2">Composite score: sensor proximity to threshold + active events + recent severe reports</p>
-                    <div id="zone-risk-list" class="mb-3">
-                         <div class="text-center text-muted py-3 fs-13">Loading...</div>
-                    </div>
+    <!-- Search -->
+    <div class="search-box">
+        <div class="input-group">
+            <input type="text" class="form-control" id="quickSearch" placeholder="Search zones, sensor stations...">
+            <button class="btn" type="button" id="quickSearchBtn"><iconify-icon icon="solar:magnifer-linear"></iconify-icon></button>
+        </div>
+        <div id="searchResults" style="display: none;"></div>
+    </div>
 
-                    <hr>
+    <!-- Floating circular controls -->
+    <div class="map-controls">
+        <button id="toggleCompare" class="map-control-btn" title="Compare flood extent"><iconify-icon icon="solar:transfer-horizontal-bold-duotone"></iconify-icon></button>
+        <button id="toggleHeatmap" class="map-control-btn has-active" title="Risk heatmap"><iconify-icon icon="solar:fire-bold-duotone"></iconify-icon></button>
+        <button id="toggleBasemaps" class="map-control-btn" title="Basemap"><iconify-icon icon="solar:map-bold-duotone"></iconify-icon></button>
+        <button id="toggleLayers" class="map-control-btn" title="Layers"><iconify-icon icon="solar:layers-bold-duotone"></iconify-icon></button>
+        <button id="toggleRiskAreas" class="map-control-btn" title="Risk areas"><iconify-icon icon="solar:danger-triangle-bold-duotone"></iconify-icon></button>
+        <button id="toggleLegendBtn" class="map-control-btn" title="Legend"><iconify-icon icon="solar:info-circle-bold-duotone"></iconify-icon></button>
+        <button id="locateMe" class="map-control-btn" title="My location"><iconify-icon icon="solar:point-on-map-bold-duotone"></iconify-icon></button>
+        <button id="toggleStatsBtn" class="map-control-btn" title="Statistics"><iconify-icon icon="solar:chart-2-bold-duotone"></iconify-icon></button>
+        <button id="toggleFullscreen" class="map-control-btn" title="Fullscreen"><iconify-icon icon="solar:full-screen-bold-duotone"></iconify-icon></button>
+    </div>
 
-                    <h6 class="fw-bold mb-2">Legend</h6>
-                    <div class="fs-12 mb-1"><span class="fw-legend-swatch" style="background:#22c55e"></span>Safe</div>
-                    <div class="fs-12 mb-1"><span class="fw-legend-swatch" style="background:#eab308"></span>Watch</div>
-                    <div class="fs-12 mb-1"><span class="fw-legend-swatch" style="background:#f97316"></span>Warning</div>
-                    <div class="fs-12 mb-3"><span class="fw-legend-swatch" style="background:#ef4444"></span>Emergency</div>
-                    <div class="fs-12 text-muted mb-1">Heatmap intensity = current water level ÷ zone threshold (capped at 2×)</div>
+    <!-- ── Risk Areas Panel (ranked, clickable, colour-coded) ───────────── -->
+    <div id="riskAreasPanel" class="fw-panel" style="width: 310px;">
+        <div class="panel-header">
+            <span><iconify-icon icon="solar:danger-triangle-bold-duotone" class="me-1"></iconify-icon> Risk Areas — Ranked</span>
+            <button class="panel-close-btn" onclick="togglePanel('riskAreasPanel')">✕</button>
+        </div>
+        <div class="panel-body">
+            <p class="text-muted" style="font-size: 11px; margin-bottom: 10px;">Composite score: sensor proximity to threshold + active events + recent severe reports. Click any zone to zoom and inspect.</p>
+            <div id="riskAreasList"><div class="text-center text-muted py-3" style="font-size:12px;">Loading...</div></div>
+        </div>
+    </div>
 
-                    <hr>
+    <!-- ── Layers Panel ──────────────────────────────────────────────────── -->
+    <div id="layersPanel" class="fw-panel">
+        <div class="panel-header"><span><iconify-icon icon="solar:layers-bold-duotone" class="me-1"></iconify-icon> Map Layers</span><button class="panel-close-btn" onclick="togglePanel('layersPanel')">✕</button></div>
+        <div class="panel-body">
+            <div class="layer-toggle">
+                <span class="layer-toggle-label"><span class="layer-swatch" style="background:#f59e0b"></span> Flood Risk Zones</span>
+                <label class="switch"><input type="checkbox" id="toggleZonesLayer" checked><span class="slider"></span></label>
+            </div>
+            <div class="layer-toggle">
+                <span class="layer-toggle-label"><span class="layer-swatch" style="background:#0E7490"></span> Sensor Stations</span>
+                <label class="switch"><input type="checkbox" id="toggleSensorsLayer" checked><span class="slider"></span></label>
+            </div>
+            <div class="layer-toggle">
+                <span class="layer-toggle-label"><span class="layer-swatch" style="background:#dc2626"></span> Satellite Flood Extent</span>
+                <label class="switch"><input type="checkbox" id="toggleFloodMapsLayer" checked><span class="slider"></span></label>
+            </div>
+            <div class="layer-toggle">
+                <span class="layer-toggle-label"><span class="layer-swatch" style="background:#6b7280"></span> Community Reports</span>
+                <label class="switch"><input type="checkbox" id="toggleReportsLayer" checked><span class="slider"></span></label>
+            </div>
+            <div class="layer-toggle">
+                <span class="layer-toggle-label"><span class="layer-swatch" style="background:#ef4444"></span> Risk Heatmap</span>
+                <label class="switch"><input type="checkbox" id="toggleHeatmapLayer" checked><span class="slider"></span></label>
+            </div>
+        </div>
+    </div>
 
-                    <div id="selected-detail">
-                         <p class="fs-12 text-muted text-center py-3">Click a sensor or zone on the map for detailed statistics</p>
-                    </div>
-               </div>
-          </div>
-     </div>
+    <!-- ── Basemap Panel ─────────────────────────────────────────────────── -->
+    <div id="basemapPanel" class="fw-panel">
+        <div class="panel-header"><span><iconify-icon icon="solar:map-bold-duotone" class="me-1"></iconify-icon> Basemap</span><button class="panel-close-btn" onclick="togglePanel('basemapPanel')">✕</button></div>
+        <div class="panel-body">
+            <div class="basemap-option" data-layer="osm" style="padding:10px 15px;cursor:pointer;border-radius:10px;">🗺️ OpenStreetMap</div>
+            <div class="basemap-option active" data-layer="satellite" style="padding:10px 15px;cursor:pointer;border-radius:10px;background:#0B3D5C;color:white;">🛰️ Satellite</div>
+            <div class="basemap-option" data-layer="dark" style="padding:10px 15px;cursor:pointer;border-radius:10px;">🌙 Dark Mode</div>
+        </div>
+    </div>
+
+    <!-- ── Heatmap & Risk Layer Panel ───────────────────────────────────── -->
+    <div id="heatmapPanel" class="fw-panel">
+        <div class="panel-header"><span><iconify-icon icon="solar:fire-bold-duotone" class="me-1"></iconify-icon> Risk Heatmap</span><button class="panel-close-btn" onclick="togglePanel('heatmapPanel')">✕</button></div>
+        <div class="panel-body">
+            <p style="font-size: 11.5px; color: #6b7280; margin-bottom: 10px;">Intensity = current water level ÷ that station's zone threshold (capped at 2×). Comparable across stations regardless of baseline.</p>
+            <div class="layer-toggle">
+                <span>Show heatmap</span>
+                <label class="switch"><input type="checkbox" id="heatmapPanelToggle" checked><span class="slider"></span></label>
+            </div>
+            <div style="margin-top: 10px;">
+                <label style="font-size: 11.5px; color: #6b7280;">Intensity scale</label>
+                <div style="height: 12px; border-radius: 6px; margin-top: 4px; background: linear-gradient(to right, #22c55e, #eab308, #f97316, #ef4444);"></div>
+                <div style="display:flex; justify-content:space-between; font-size: 10px; color: #9ca3af; margin-top: 2px;"><span>Safe</span><span>At threshold</span><span>2× threshold</span></div>
+            </div>
+            <button id="refreshHeatmapBtn" class="btn btn-sm btn-outline-primary w-100 mt-3">Refresh Now</button>
+        </div>
+    </div>
+
+    <!-- ── Compare Flood Extent Panel ───────────────────────────────────── -->
+    <div id="comparePanel" class="fw-panel">
+        <div class="panel-header"><span><iconify-icon icon="solar:transfer-horizontal-bold-duotone" class="me-1"></iconify-icon> Compare Flood Extent</span><button class="panel-close-btn" onclick="togglePanel('comparePanel')">✕</button></div>
+        <div class="panel-body">
+            <p style="font-size: 11.5px; color: #6b7280; margin-bottom: 8px;">Compare two satellite-derived flood detections side-by-side on the map.</p>
+            <div class="compare-divider-label">Before</div>
+            <select id="compareBefore" class="fw-select"><option value="">-- Select detection --</option></select>
+            <div class="compare-divider-label">After</div>
+            <select id="compareAfter" class="fw-select"><option value="">-- Select detection --</option></select>
+            <div class="d-flex gap-2 mt-3">
+                <button id="compareRunBtn" class="btn btn-primary btn-sm flex-fill">Compare</button>
+                <button id="compareClearBtn" class="btn btn-secondary btn-sm flex-fill">Clear</button>
+            </div>
+            <div id="compareStatus"></div>
+            <div id="compareResults" style="display:none; margin-top: 10px;">
+                <div class="compare-divider-label">Result</div>
+                <div class="compare-result-row"><span>Before area</span><span id="cmpBeforeArea">—</span></div>
+                <div class="compare-result-row"><span>After area</span><span id="cmpAfterArea">—</span></div>
+                <div class="compare-result-row"><span>Change</span><span id="cmpDelta">—</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Stats Panel (bottom-left) ────────────────────────────────────── -->
+    <div id="statsPanel" class="stats-panel">
+        <h6><span><iconify-icon icon="solar:chart-2-bold-duotone" class="me-1"></iconify-icon> Live Statistics</span><button class="panel-close-btn" onclick="togglePanel('statsPanel')">✕</button></h6>
+        <div class="stats-card"><span class="stats-label">Risk Zones</span><span class="stats-number" id="statTotalZones">—</span></div>
+        <div class="stats-card"><span class="stats-label">Active Flood Events</span><span class="stats-number" id="statActiveEvents">—</span></div>
+        <div class="stats-card"><span class="stats-label">Stations Online</span><span class="stats-number" id="statStationsOnline">—</span></div>
+        <div class="stats-card"><span class="stats-label">Alerts (24h)</span><span class="stats-number" id="statAlerts24h">—</span></div>
+        <div class="stats-card"><span class="stats-label">Highest Risk Zone</span><span class="stats-number" id="statTopZone" style="font-size: 0.85rem;">—</span></div>
+    </div>
+
+    <!-- ── Legend Panel (bottom-right) ──────────────────────────────────── -->
+    <div id="legendPanel" class="fw-panel legend-panel">
+        <div class="panel-header"><span><iconify-icon icon="solar:info-circle-bold-duotone" class="me-1"></iconify-icon> Map Legend</span><button class="panel-close-btn" onclick="togglePanel('legendPanel')">✕</button></div>
+        <div class="panel-body">
+            <div class="legend-item"><div class="legend-color" style="background:#22c55e"></div><span>Safe zone</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#eab308"></div><span>Watch</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#f97316"></div><span>Warning</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#ef4444"></div><span>Emergency</span></div>
+            <div class="legend-divider"></div>
+            <div class="legend-item"><div class="legend-icon">🟢</div><span>Sensor online</span></div>
+            <div class="legend-item"><div class="legend-icon">🔴</div><span>Sensor offline</span></div>
+            <div class="legend-item"><div class="legend-icon">🟠</div><span>Sensor maintenance</span></div>
+            <div class="legend-divider"></div>
+            <div class="legend-item"><div class="legend-icon">📍</div><span>Community report</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#dc2626; opacity:0.5;"></div><span>Satellite flood extent</span></div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-fullscreen@1.0.2/dist/Leaflet.fullscreen.js"></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
 <script>
 const RISK_COLORS = {green: "#22c55e", yellow: "#eab308", orange: "#f97316", red: "#ef4444"};
 const STATUS_COLORS = {online: "#22c55e", offline: "#ef4444", maintenance: "#f59e0b", faulty: "#6b7280"};
 
-document.addEventListener("DOMContentLoaded", function () {
-    const map = L.map("full-map", {zoomControl: true}).setView([{{ accra_center.lat }}, {{ accra_center.lon }}], 12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors", maxZoom: 18,
-    }).addTo(map);
-    L.control.scale({position: "bottomleft"}).addTo(map);
+let map;
+let zonesLayer, sensorsLayer, floodMapsLayer, reportsLayer, compareLayer;
+let heatLayer = null;
+let allZones = [];      // {id, name, layer, bounds}
+let allStations = [];   // {id, name, layer, bounds}
+let zoneRiskById = {};
 
-    const layers = {
-        sensors: L.markerClusterGroup({maxClusterRadius: 40}).addTo(map),
-        zones: L.layerGroup().addTo(map),
-        floodmaps: L.layerGroup().addTo(map),
-        reports: L.markerClusterGroup({maxClusterRadius: 35}).addTo(map),
-    };
-    let heatLayer = null;
+const basemaps = {
+    osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
+    satellite: L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { subdomains: ['mt0','mt1','mt2','mt3'], maxZoom: 20 }),
+    dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }),
+};
 
-    function toggleLayer(checkboxId, layerKey) {
-        document.getElementById(checkboxId).addEventListener("change", e => {
-            if (e.target.checked) map.addLayer(layers[layerKey]); else map.removeLayer(layers[layerKey]);
+function togglePanel(panelId) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+}
+
+function initMap() {
+    map = L.map('map', { maxZoom: 20, fullscreenControl: false }).setView([{{ accra_center.lat }}, {{ accra_center.lon }}], 12);
+    basemaps.satellite.addTo(map);
+
+    zonesLayer = L.layerGroup().addTo(map);
+    sensorsLayer = L.markerClusterGroup({ maxClusterRadius: 40 }).addTo(map);
+    floodMapsLayer = L.layerGroup().addTo(map);
+    reportsLayer = L.markerClusterGroup({ maxClusterRadius: 35 }).addTo(map);
+    compareLayer = L.layerGroup().addTo(map);
+
+    const coordsEl = document.getElementById('mouseCoords');
+    map.on('mousemove', e => {
+        coordsEl.innerHTML = `Lat:&nbsp;<strong>${e.latlng.lat.toFixed(5)}</strong>&nbsp;&nbsp;&nbsp;Lng:&nbsp;<strong>${e.latlng.lng.toFixed(5)}</strong>`;
+    });
+    map.on('mouseout', () => { coordsEl.innerHTML = 'Lat: —&nbsp;&nbsp;Lng: —'; });
+
+    loadZonesAndRiskAreas();
+    loadSensors();
+    loadFloodMaps();
+    loadReports();
+    loadHeatmap();
+    loadStats();
+    setupEventListeners();
+
+    setInterval(() => { loadHeatmap(); loadStats(); }, 60000);
+    document.addEventListener("floodwatch:sensor-reading", () => loadHeatmap());
+    document.addEventListener("floodwatch:alert", () => { loadZonesAndRiskAreas(); loadStats(); });
+}
+
+// ── Flood Risk Zones + Risk Areas panel ────────────────────────────────────
+function loadZonesAndRiskAreas() {
+    zonesLayer.clearLayers();
+    allZones = [];
+
+    Promise.all([
+        fetch("/api/flood-zones/").then(r => r.json()),
+        fetch("/api/dashboard/stats/zone-risk-scores/").then(r => r.json()),
+    ]).then(([zoneData, riskData]) => {
+        zoneRiskById = {};
+        riskData.zones.forEach(z => { zoneRiskById[z.zone_id] = z; });
+
+        const tempGroup = L.featureGroup();
+        (zoneData.features || zoneData.results || []).forEach(f => {
+            const risk = zoneRiskById[f.id];
+            const color = RISK_COLORS[f.properties.current_risk_level] || "#888";
+            const fillOpacity = risk ? 0.10 + (risk.risk_score / 100) * 0.35 : 0.15;
+            const geoLayer = L.geoJSON(f, { style: { color, weight: 2.5, fillOpacity } });
+            geoLayer.bindPopup(buildZonePopupHtml(f.properties, risk));
+            geoLayer.on('click', () => { highlightZone(f.id); });
+            geoLayer.addTo(zonesLayer);
+            tempGroup.addLayer(geoLayer);
+
+            allZones.push({ id: f.id, name: f.properties.name, layer: geoLayer, bounds: geoLayer.getBounds() });
         });
+
+        renderRiskAreasList(riskData.zones);
+
+        if (tempGroup.getLayers().length && !window._fwMapHasFitOnce) {
+            map.fitBounds(tempGroup.getBounds(), { padding: [40, 40] });
+            window._fwMapHasFitOnce = true;
+        }
+    }).catch(() => console.warn("Could not load flood zones / risk scores"));
+}
+
+function buildZonePopupHtml(props, risk) {
+    const riskColor = RISK_COLORS[props.current_risk_level] || "#888";
+    const score = risk ? risk.risk_score : null;
+    return `
+        <div class="custom-popup">
+            <div class="popup-header"><span>🗺️ ${props.name}</span></div>
+            <div class="popup-body">
+                <div class="popup-row"><span class="popup-label">Risk level</span><span class="popup-value" style="color:${riskColor}">${props.current_risk_level}</span></div>
+                <div class="popup-row"><span class="popup-label">Composite score</span><span class="popup-value">${score !== null ? score + '/100' : '—'}</span></div>
+                <div class="popup-row"><span class="popup-label">Sensor stations</span><span class="popup-value">${props.station_count}</span></div>
+                <div class="popup-row"><span class="popup-label">Water threshold</span><span class="popup-value">${props.water_level_threshold_cm} cm</span></div>
+                <div class="popup-row"><span class="popup-label">Population est.</span><span class="popup-value">${props.population_estimate ?? '—'}</span></div>
+                ${score !== null ? `<div class="popup-risk-bar"><div class="popup-risk-fill" style="width:${score}%;background:${riskColor}"></div></div>` : ''}
+                <button class="btn-detail" onclick="window.location.href='/dashboard/alerts/'">View flood events →</button>
+            </div>
+        </div>`;
+}
+
+function renderRiskAreasList(zones) {
+    const container = document.getElementById('riskAreasList');
+    if (!zones.length) { container.innerHTML = '<p class="text-muted" style="font-size:12px;">No risk zones configured</p>'; return; }
+    container.innerHTML = zones.map(z => {
+        const color = z.risk_score >= 70 ? RISK_COLORS.red : z.risk_score >= 40 ? RISK_COLORS.orange : z.risk_score >= 15 ? RISK_COLORS.yellow : RISK_COLORS.green;
+        return `
+            <div class="risk-item" data-zone-id="${z.zone_id}">
+                <div class="risk-item-top">
+                    <span class="risk-item-name">${z.zone_name}</span>
+                    <span class="risk-score-badge" style="background:${color}">${z.risk_score}</span>
+                </div>
+                <div class="risk-bar"><div class="risk-bar-fill" style="width:${z.risk_score}%;background:${color}"></div></div>
+                <div class="risk-item-meta">${z.station_count} station(s) · ${z.active_event ? 'Active: ' + z.active_event : 'No active event'}</div>
+            </div>`;
+    }).join('');
+    container.querySelectorAll('.risk-item').forEach(row => {
+        row.addEventListener('click', () => highlightZone(parseInt(row.dataset.zoneId)));
+    });
+}
+
+function highlightZone(zoneId) {
+    const zone = allZones.find(z => z.id === zoneId);
+    if (zone && zone.bounds && zone.bounds.isValid()) {
+        map.flyToBounds(zone.bounds, { padding: [60, 60], duration: 0.8 });
+        zone.layer.openPopup();
     }
-    toggleLayer("layer-sensors", "sensors");
-    toggleLayer("layer-zones", "zones");
-    toggleLayer("layer-floodmaps", "floodmaps");
-    toggleLayer("layer-reports", "reports");
-    document.getElementById("layer-heatmap").addEventListener("change", e => {
-        if (!heatLayer) return;
-        if (e.target.checked) map.addLayer(heatLayer); else map.removeLayer(heatLayer);
+}
+
+// ── Sensor stations ─────────────────────────────────────────────────────────
+function loadSensors() {
+    sensorsLayer.clearLayers();
+    allStations = [];
+    fetch("/api/sensors/").then(r => r.json()).then(data => {
+        (data.features || data.results || []).forEach(f => {
+            const [lon, lat] = f.geometry.coordinates;
+            const color = STATUS_COLORS[f.properties.status] || "#888";
+            const marker = L.circleMarker([lat, lon], { radius: 10, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.92 });
+            marker.bindPopup(`<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>`);
+            marker.on('popupopen', () => loadStationPopup(f.id, marker));
+            sensorsLayer.addLayer(marker);
+            allStations.push({ id: f.id, name: f.properties.name, layer: marker, latlng: [lat, lon] });
+        });
+    }).catch(() => console.warn("Could not load sensor stations"));
+}
+
+function loadStationPopup(stationId, marker) {
+    fetch(`/api/dashboard/stats/station/${stationId}/detail/`).then(r => r.json()).then(data => {
+        marker.setPopupContent(renderStationPopupHtml(data));
+    }).catch(() => marker.setPopupContent("<p class='text-danger' style='font-size:12px;padding:10px;'>Could not load station data</p>"));
+}
+
+function renderStationPopupHtml(data) {
+    const s = data.station, c = data.current, h = data.last_24h;
+    const trendIcon = { rising: "↑", falling: "↓", steady: "→" }[data.trend];
+    const riskPct = data.risk_ratio ? Math.min(data.risk_ratio * 50, 100) : 0;
+    const riskColor = !data.risk_ratio ? "#888" : data.risk_ratio >= 1 ? "#ef4444" : data.risk_ratio >= 0.7 ? "#f97316" : "#22c55e";
+    return `
+        <div class="custom-popup">
+            <div class="popup-header"><span>📡 ${s.name}</span><span class="badge" style="background:${STATUS_COLORS[s.status]}">${s.status}</span></div>
+            <div class="popup-body">
+                <div class="popup-row"><span class="popup-label">Zone</span><span class="popup-value">${s.zone_name || '—'}</span></div>
+                <div class="popup-row"><span class="popup-label">Current water level</span><span class="popup-value">${c.water_level_cm ?? '—'} cm</span></div>
+                <div class="popup-row"><span class="popup-label">Trend (24h)</span><span class="popup-value trend-${data.trend}">${trendIcon} ${data.trend}</span></div>
+                <div class="popup-row"><span class="popup-label">24h avg/max/min</span><span class="popup-value">${h.avg_water_level_cm}/${h.max_water_level_cm}/${h.min_water_level_cm}</span></div>
+                <div class="popup-row"><span class="popup-label">Battery</span><span class="popup-value">${s.battery_level}%</span></div>
+                ${data.risk_ratio !== null ? `<div class="popup-risk-bar"><div class="popup-risk-fill" style="width:${riskPct}%;background:${riskColor}"></div></div>` : ''}
+                <button class="btn-detail" onclick="window.location.href='/dashboard/sensors/'">View all sensors →</button>
+            </div>
+        </div>`;
+}
+
+// ── Satellite flood maps ───────────────────────────────────────────────────
+let floodMapsCache = [];
+function loadFloodMaps() {
+    floodMapsLayer.clearLayers();
+    fetch("/api/flood-maps/?ordering=-created_at").then(r => r.json()).then(data => {
+        floodMapsCache = data.features || data.results || [];
+        floodMapsCache.slice(0, 15).forEach(f => {
+            if (!f.geometry) return;
+            const confirmed = f.properties.confirmed_by_sensors;
+            L.geoJSON(f, { style: { color: confirmed ? "#dc2626" : "#0ea5e9", weight: 1, fillOpacity: 0.35 } })
+              .bindPopup(`<div class="custom-popup"><div class="popup-header"><span>${confirmed ? '⚠️ IoT-Confirmed Flood' : '🛰️ Satellite Detection'}</span></div>
+                  <div class="popup-body">
+                  <div class="popup-row"><span class="popup-label">Area</span><span class="popup-value">${f.properties.flooded_area_ha} ha</span></div>
+                  <div class="popup-row"><span class="popup-label">Confidence</span><span class="popup-value">${(f.properties.confidence*100).toFixed(0)}%</span></div>
+                  <div class="popup-row"><span class="popup-label">Method</span><span class="popup-value">${f.properties.detection_method}</span></div>
+                  </div></div>`)
+              .addTo(floodMapsLayer);
+        });
+        populateCompareDropdowns();
+    }).catch(() => console.warn("Could not load flood maps"));
+}
+
+function populateCompareDropdowns() {
+    const before = document.getElementById('compareBefore');
+    const after = document.getElementById('compareAfter');
+    const opts = floodMapsCache.map(f =>
+        `<option value="${f.id}">${f.properties.flood_zone_name || 'Accra-wide'} — ${new Date(f.properties.created_at).toLocaleDateString()} (${f.properties.flooded_area_ha}ha)</option>`
+    ).join('');
+    before.innerHTML = '<option value="">-- Select detection --</option>' + opts;
+    after.innerHTML = '<option value="">-- Select detection --</option>' + opts;
+}
+
+// ── Compare flood extent (before/after, vector overlay) ───────────────────
+function runFloodCompare() {
+    const beforeId = document.getElementById('compareBefore').value;
+    const afterId = document.getElementById('compareAfter').value;
+    const status = document.getElementById('compareStatus');
+    if (!beforeId || !afterId) { status.textContent = 'Select both a Before and After detection.'; return; }
+    if (beforeId === afterId) { status.textContent = 'Choose two different detections.'; return; }
+
+    const beforeFeature = floodMapsCache.find(f => String(f.id) === beforeId);
+    const afterFeature = floodMapsCache.find(f => String(f.id) === afterId);
+    if (!beforeFeature || !afterFeature) { status.textContent = 'Could not find selected detections.'; return; }
+
+    compareLayer.clearLayers();
+    const beforeLayer = L.geoJSON(beforeFeature, { style: { color: "#0ea5e9", weight: 2, fillOpacity: 0.30, dashArray: "6,4" } }).bindTooltip("BEFORE", { permanent: false });
+    const afterLayer = L.geoJSON(afterFeature, { style: { color: "#dc2626", weight: 2, fillOpacity: 0.30 } }).bindTooltip("AFTER", { permanent: false });
+    beforeLayer.addTo(compareLayer);
+    afterLayer.addTo(compareLayer);
+
+    const bounds = L.featureGroup([beforeLayer, afterLayer]).getBounds();
+    if (bounds.isValid()) map.flyToBounds(bounds, { padding: [50, 50] });
+
+    const beforeArea = beforeFeature.properties.flooded_area_ha;
+    const afterArea = afterFeature.properties.flooded_area_ha;
+    const delta = afterArea - beforeArea;
+    document.getElementById('cmpBeforeArea').textContent = beforeArea + ' ha';
+    document.getElementById('cmpAfterArea').textContent = afterArea + ' ha';
+    document.getElementById('cmpDelta').innerHTML = (delta >= 0 ? '+' : '') + delta.toFixed(1) + ' ha ' +
+        (delta > 0 ? '<span style="color:#ef4444">▲ worsening</span>' : delta < 0 ? '<span style="color:#22c55e">▼ improving</span>' : '<span style="color:#6b7280">no change</span>');
+    document.getElementById('compareResults').style.display = 'block';
+    status.textContent = 'Blue dashed = Before · Red = After';
+}
+
+function clearFloodCompare() {
+    compareLayer.clearLayers();
+    document.getElementById('compareBefore').value = '';
+    document.getElementById('compareAfter').value = '';
+    document.getElementById('compareResults').style.display = 'none';
+    document.getElementById('compareStatus').textContent = '';
+}
+
+// ── Community reports ───────────────────────────────────────────────────────
+function loadReports() {
+    reportsLayer.clearLayers();
+    fetch("/api/community-reports/").then(r => r.json()).then(data => {
+        (data.features || data.results || []).forEach(f => {
+            if (!f.geometry) return;
+            const [lon, lat] = f.geometry.coordinates;
+            const color = f.properties.severity === "severe" ? "#ef4444" : f.properties.severity === "moderate" ? "#f59e0b" : "#0ea5e9";
+            const marker = L.circleMarker([lat, lon], { radius: 7, color: "#fff", weight: 1.5, fillColor: color, fillOpacity: 0.9 });
+            marker.bindPopup(`
+                <div class="custom-popup"><div class="popup-header"><span>📍 Community Report</span>${f.properties.is_verified ? '<span class="badge bg-success">Verified</span>' : '<span class="badge bg-secondary">Unverified</span>'}</div>
+                <div class="popup-body">
+                <div class="popup-row"><span class="popup-label">Severity</span><span class="popup-value">${f.properties.severity}</span></div>
+                <div class="popup-row"><span class="popup-label">Reported</span><span class="popup-value">${new Date(f.properties.created_at).toLocaleDateString()}</span></div>
+                </div></div>`);
+            reportsLayer.addLayer(marker);
+        });
+    }).catch(() => console.warn("Could not load community reports"));
+}
+
+// ── Risk heatmap ─────────────────────────────────────────────────────────────
+function loadHeatmap() {
+    fetch("/api/dashboard/stats/map-heatmap/").then(r => r.json()).then(data => {
+        const points = data.points.map(p => [p.lat, p.lon, p.intensity]);
+        if (heatLayer) map.removeLayer(heatLayer);
+        heatLayer = L.heatLayer(points, {
+            radius: 45, blur: 35, max: data.max_intensity,
+            gradient: { 0.0: "#22c55e", 0.4: "#eab308", 0.7: "#f97316", 1.0: "#ef4444" },
+        });
+        const enabled = document.getElementById('heatmapPanelToggle')?.checked !== false;
+        if (enabled) heatLayer.addTo(map);
+    }).catch(() => console.warn("Could not load heatmap"));
+}
+
+// ── KPI stats panel ─────────────────────────────────────────────────────────
+function loadStats() {
+    fetch("/api/dashboard/stats/overview/").then(r => r.json()).then(data => {
+        document.getElementById('statTotalZones').textContent = data.totals.total_zones;
+        document.getElementById('statActiveEvents').textContent = data.totals.active_events;
+        document.getElementById('statStationsOnline').textContent = data.station_status_distribution.online + '/' + data.totals.total_stations;
+        document.getElementById('statAlerts24h').textContent = data.totals.total_alerts_24h;
+    }).catch(() => console.warn("Could not load overview stats"));
+
+    fetch("/api/dashboard/stats/zone-risk-scores/").then(r => r.json()).then(data => {
+        const top = data.zones[0];
+        document.getElementById('statTopZone').textContent = top ? `${top.zone_name} (${top.risk_score})` : '—';
+    }).catch(() => {});
+}
+
+// ── Search (client-side, against already-loaded zones + stations) ──────────
+function searchFeatures(query) {
+    const resultsDiv = document.getElementById('searchResults');
+    if (!query.trim() || query.length < 2) { resultsDiv.style.display = 'none'; return; }
+    const q = query.toLowerCase();
+    const results = [];
+    allZones.forEach(z => { if (z.name.toLowerCase().includes(q)) results.push({ ...z, type: 'zone' }); });
+    allStations.forEach(s => { if (s.name.toLowerCase().includes(q)) results.push({ ...s, type: 'station' }); });
+
+    if (!results.length) {
+        resultsDiv.innerHTML = '<div style="padding:15px;text-align:center;color:#9ca3af;font-size:12px;">No results found</div>';
+        resultsDiv.style.display = 'block';
+        return;
+    }
+    resultsDiv.innerHTML = results.map((r, i) => `
+        <div class="search-result-item" data-idx="${i}" data-type="${r.type}">
+            <strong style="font-size:12.5px;">${r.name}</strong>
+            <span class="search-result-badge" style="background:${r.type === 'zone' ? '#0E7490' : '#0B3D5C'}">${r.type}</span>
+        </div>`).join('');
+    resultsDiv.style.display = 'block';
+    resultsDiv.querySelectorAll('.search-result-item').forEach((el, i) => {
+        el.addEventListener('click', () => {
+            const r = results[i];
+            if (r.type === 'zone') highlightZone(r.id);
+            else if (r.latlng) { map.flyTo(r.latlng, 15, { duration: 0.8 }); r.layer.openPopup(); }
+            resultsDiv.style.display = 'none';
+            document.getElementById('quickSearch').value = '';
+        });
+    });
+}
+
+function changeBasemap(layer) {
+    Object.values(basemaps).forEach(bl => { if (map.hasLayer(bl)) map.removeLayer(bl); });
+    basemaps[layer].addTo(map);
+    document.querySelectorAll('.basemap-option').forEach(opt => {
+        opt.classList.remove('active'); opt.style.background = ''; opt.style.color = '';
+    });
+    const active = document.querySelector(`.basemap-option[data-layer="${layer}"]`);
+    active.classList.add('active'); active.style.background = '#0B3D5C'; active.style.color = 'white';
+}
+
+function makeDraggable(panel, handle) {
+    if (!panel || !handle) return;
+    let dragging = false, startX, startY, originLeft, originTop;
+    handle.addEventListener('mousedown', e => {
+        if (e.target.closest('.panel-close-btn')) return;
+        e.preventDefault();
+        const mapRect = document.getElementById('mapWrapper').getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        panel.style.left = (panelRect.left - mapRect.left) + 'px';
+        panel.style.top = (panelRect.top - mapRect.top) + 'px';
+        panel.style.right = 'auto'; panel.style.bottom = 'auto';
+        startX = e.clientX; startY = e.clientY;
+        originLeft = parseFloat(panel.style.left); originTop = parseFloat(panel.style.top);
+        dragging = true; handle.style.cursor = 'grabbing';
+        const onMove = e => {
+            if (!dragging) return;
+            panel.style.left = (originLeft + e.clientX - startX) + 'px';
+            panel.style.top = (originTop + e.clientY - startY) + 'px';
+        };
+        const onUp = () => { dragging = false; handle.style.cursor = 'grab'; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
+function setupEventListeners() {
+    document.getElementById('toggleRiskAreas').onclick = () => togglePanel('riskAreasPanel');
+    document.getElementById('toggleLayers').onclick = () => togglePanel('layersPanel');
+    document.getElementById('toggleBasemaps').onclick = () => togglePanel('basemapPanel');
+    document.getElementById('toggleHeatmap').onclick = () => togglePanel('heatmapPanel');
+    document.getElementById('toggleCompare').onclick = () => togglePanel('comparePanel');
+    document.getElementById('toggleLegendBtn').onclick = () => togglePanel('legendPanel');
+    document.getElementById('toggleStatsBtn').onclick = () => togglePanel('statsPanel');
+
+    document.getElementById('locateMe').onclick = () => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                pos => map.setView([pos.coords.latitude, pos.coords.longitude], 15),
+                () => alert('Could not get your location')
+            );
+        }
+    };
+    document.getElementById('toggleFullscreen').onclick = () => {
+        const wrapper = document.getElementById('mapWrapper');
+        if (!document.fullscreenElement) wrapper.requestFullscreen(); else document.exitFullscreen();
+    };
+
+    // Layer toggles
+    document.getElementById('toggleZonesLayer').onchange = e => { if (e.target.checked) map.addLayer(zonesLayer); else map.removeLayer(zonesLayer); };
+    document.getElementById('toggleSensorsLayer').onchange = e => { if (e.target.checked) map.addLayer(sensorsLayer); else map.removeLayer(sensorsLayer); };
+    document.getElementById('toggleFloodMapsLayer').onchange = e => { if (e.target.checked) map.addLayer(floodMapsLayer); else map.removeLayer(floodMapsLayer); };
+    document.getElementById('toggleReportsLayer').onchange = e => { if (e.target.checked) map.addLayer(reportsLayer); else map.removeLayer(reportsLayer); };
+    document.getElementById('toggleHeatmapLayer').onchange = e => {
+        document.getElementById('heatmapPanelToggle').checked = e.target.checked;
+        if (e.target.checked && heatLayer) map.addLayer(heatLayer); else if (heatLayer) map.removeLayer(heatLayer);
+    };
+    document.getElementById('heatmapPanelToggle').onchange = e => {
+        document.getElementById('toggleHeatmapLayer').checked = e.target.checked;
+        if (e.target.checked && heatLayer) map.addLayer(heatLayer); else if (heatLayer) map.removeLayer(heatLayer);
+    };
+    document.getElementById('refreshHeatmapBtn').onclick = loadHeatmap;
+
+    // Basemap
+    document.querySelectorAll('.basemap-option').forEach(opt => {
+        opt.onclick = () => { changeBasemap(opt.dataset.layer); togglePanel('basemapPanel'); };
     });
 
-    // ── Risk-intensity heatmap (Leaflet.heat) ──────────────────────────────
-    function loadHeatmap() {
-        fetch("/api/dashboard/stats/map-heatmap/").then(r => r.json()).then(data => {
-            const points = data.points.map(p => [p.lat, p.lon, p.intensity]);
-            if (heatLayer) map.removeLayer(heatLayer);
-            heatLayer = L.heatLayer(points, {
-                radius: 45, blur: 35, max: data.max_intensity,
-                gradient: {0.0: "#22c55e", 0.4: "#eab308", 0.7: "#f97316", 1.0: "#ef4444"},
-            });
-            if (document.getElementById("layer-heatmap").checked) heatLayer.addTo(map);
-        }).catch(() => console.warn("Could not load heatmap data"));
-    }
+    // Compare
+    document.getElementById('compareRunBtn').onclick = runFloodCompare;
+    document.getElementById('compareClearBtn').onclick = clearFloodCompare;
 
-    // ── Sensor stations with rich popups (fetch detail stats on click) ────
-    function loadSensors() {
-        layers.sensors.clearLayers();
-        fetch("/api/sensors/").then(r => r.json()).then(data => {
-            (data.features || data.results || []).forEach(f => {
-                const [lon, lat] = f.geometry.coordinates;
-                const color = STATUS_COLORS[f.properties.status] || "#888";
-                const marker = L.circleMarker([lat, lon], {
-                    radius: 10, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.9,
-                });
-                marker.bindPopup(`<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div><br><span class="fs-12">Loading station data...</span></div>`);
-                marker.on("popupopen", () => loadStationPopup(f.id, marker));
-                marker.on("click", () => showStationSidebar(f.id));
-                layers.sensors.addLayer(marker);
-            });
-        }).catch(() => console.warn("Could not load sensor stations"));
-    }
+    // Search
+    let searchTimeout;
+    document.getElementById('quickSearch').addEventListener('input', e => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => searchFeatures(e.target.value), 250);
+    });
+    document.getElementById('quickSearchBtn').onclick = () => searchFeatures(document.getElementById('quickSearch').value);
 
-    function loadStationPopup(stationId, marker) {
-        fetch(`/api/dashboard/stats/station/${stationId}/detail/`).then(r => r.json()).then(data => {
-            marker.setPopupContent(renderStationPopupHtml(data));
-        }).catch(() => marker.setPopupContent("<p class='text-danger fs-13'>Could not load station data</p>"));
-    }
+    // Close panels when clicking outside
+    document.addEventListener('click', e => {
+        const panels = ['riskAreasPanel', 'layersPanel', 'basemapPanel', 'heatmapPanel', 'comparePanel', 'legendPanel', 'statsPanel'];
+        const btns = ['toggleRiskAreas', 'toggleLayers', 'toggleBasemaps', 'toggleHeatmap', 'toggleCompare', 'toggleLegendBtn', 'toggleStatsBtn'];
+        let clickedPanel = false, clickedBtn = false;
+        panels.forEach(p => { if (document.getElementById(p)?.contains(e.target)) clickedPanel = true; });
+        btns.forEach(b => { if (document.getElementById(b)?.contains(e.target)) clickedBtn = true; });
+        if (document.getElementById('searchResults')?.contains(e.target) || e.target.id === 'quickSearch') clickedPanel = true;
+        if (!clickedPanel && !clickedBtn) {
+            panels.forEach(p => { const el = document.getElementById(p); if (el) el.style.display = 'none'; });
+            document.getElementById('searchResults').style.display = 'none';
+        }
+    });
+}
 
-    function renderStationPopupHtml(data) {
-        const s = data.station, c = data.current, h = data.last_24h;
-        const statusBadge = `<span class="badge" style="background:${STATUS_COLORS[s.status]}">${s.status}</span>`;
-        const trendIcon = {rising: "↑", falling: "↓", steady: "→"}[data.trend];
-        const trendClass = `fw-trend-${data.trend}`;
-        const riskPct = data.risk_ratio ? Math.min(data.risk_ratio * 50, 100) : 0;
-        const riskColor = !data.risk_ratio ? "#888" : data.risk_ratio >= 1 ? "#ef4444" : data.risk_ratio >= 0.7 ? "#f97316" : "#22c55e";
-        return `
-            <div>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <strong>${s.name}</strong> ${statusBadge}
-                </div>
-                <div class="fs-12 text-muted mb-2">${s.community || "—"} ${s.zone_name ? "· " + s.zone_name : ""}</div>
-                <div class="fw-popup-stat"><span>Current water level</span><strong>${c.water_level_cm ?? "—"} cm</strong></div>
-                <div class="fw-popup-stat"><span>Trend (vs 24h avg)</span><strong class="${trendClass}">${trendIcon} ${data.trend}</strong></div>
-                <div class="fw-popup-stat"><span>Rainfall (latest)</span><span>${c.rainfall_mm ?? "—"} mm</span></div>
-                <div class="fw-popup-stat"><span>24h avg / max / min</span><span>${h.avg_water_level_cm} / ${h.max_water_level_cm} / ${h.min_water_level_cm} cm</span></div>
-                <div class="fw-popup-stat"><span>24h total rainfall</span><span>${h.total_rainfall_mm} mm</span></div>
-                <div class="fw-popup-stat"><span>Battery</span><span>${s.battery_level}%</span></div>
-                ${data.risk_ratio !== null ? `
-                <div class="mt-2">
-                    <div class="fs-11 text-muted mb-1">Risk ratio: ${data.risk_ratio}× threshold</div>
-                    <div class="fw-risk-bar"><div class="fw-risk-bar-fill" style="width:${riskPct}%;background:${riskColor}"></div></div>
-                </div>` : ""}
-                <div class="fs-11 text-muted mt-2">Last reading: ${s.last_reading_at ? new Date(s.last_reading_at).toLocaleString() : "never"}</div>
-            </div>`;
-    }
-
-    // ── Sidebar detail panel on station click ──────────────────────────────
-    function showStationSidebar(stationId) {
-        fetch(`/api/dashboard/stats/station/${stationId}/detail/`).then(r => r.json()).then(data => {
-            document.getElementById("selected-detail").innerHTML = `
-                <h6 class="fw-bold mb-2">${data.station.name}</h6>
-                ${renderStationPopupHtml(data)}
-                <a href="/dashboard/sensors/" class="btn btn-sm btn-outline-primary w-100 mt-2">View all sensors</a>`;
-        });
-    }
-
-    // ── Flood zones styled by composite risk score (not just static field) ─
-    function loadZones() {
-        layers.zones.clearLayers();
-        Promise.all([
-            fetch("/api/flood-zones/").then(r => r.json()),
-            fetch("/api/dashboard/stats/zone-risk-scores/").then(r => r.json()),
-        ]).then(([zoneData, riskData]) => {
-            const riskByName = {};
-            riskData.zones.forEach(z => { riskByName[z.zone_name] = z; });
-
-            (zoneData.features || zoneData.results || []).forEach(f => {
-                const risk = riskByName[f.properties.name];
-                const color = RISK_COLORS[f.properties.current_risk_level] || "#888";
-                const geoLayer = L.geoJSON(f, {
-                    style: {color, weight: 2, fillOpacity: risk ? 0.10 + (risk.risk_score / 100) * 0.35 : 0.15},
-                });
-                geoLayer.bindPopup(`
-                    <strong>${f.properties.name}</strong><br>
-                    <span class="fs-12">Risk level: <b>${f.properties.current_risk_level}</b></span><br>
-                    <span class="fs-12">Composite score: <b>${risk ? risk.risk_score : "—"}/100</b></span><br>
-                    <span class="fs-12">Stations: ${f.properties.station_count}</span>
-                `);
-                geoLayer.on("click", () => showZoneSidebar(f.id, f.properties.name));
-                layers.zones.addLayer(geoLayer);
-            });
-
-            renderZoneRiskList(riskData.zones);
-        }).catch(() => console.warn("Could not load flood zones"));
-    }
-
-    function renderZoneRiskList(zones) {
-        const container = document.getElementById("zone-risk-list");
-        if (!zones.length) { container.innerHTML = '<p class="fs-12 text-muted">No zones configured</p>'; return; }
-        container.innerHTML = zones.map(z => {
-            const color = z.risk_score >= 70 ? "#ef4444" : z.risk_score >= 40 ? "#f97316" : z.risk_score >= 15 ? "#eab308" : "#22c55e";
-            return `
-                <div class="fw-zone-risk-row mb-2" data-zone-id="${z.zone_id}">
-                    <div class="d-flex justify-content-between fs-12">
-                        <span>${z.zone_name}</span><strong>${z.risk_score}</strong>
-                    </div>
-                    <div class="fw-risk-bar"><div class="fw-risk-bar-fill" style="width:${z.risk_score}%;background:${color}"></div></div>
-                </div>`;
-        }).join("");
-        container.querySelectorAll(".fw-zone-risk-row").forEach(row => {
-            row.addEventListener("click", () => showZoneSidebar(row.dataset.zoneId));
-        });
-    }
-
-    function showZoneSidebar(zoneId, zoneName) {
-        fetch(`/api/flood-zones/${zoneId}/risk/`).then(r => r.json()).then(data => {
-            document.getElementById("selected-detail").innerHTML = `
-                <h6 class="fw-bold mb-2">${data.name}</h6>
-                <div class="fw-popup-stat"><span>Risk level</span><strong>${data.current_risk_level}</strong></div>
-                <div class="fw-popup-stat"><span>Active event severity</span><strong>${data.active_event_severity || "none"}</strong></div>
-                <div class="fw-popup-stat"><span>Last assessed</span><span>${data.last_assessed_at ? new Date(data.last_assessed_at).toLocaleString() : "—"}</span></div>
-                <a href="/dashboard/alerts/" class="btn btn-sm btn-outline-primary w-100 mt-2">View flood events</a>`;
-        });
-    }
-
-    // ── Satellite flood extent ───────────────────────────────────────────
-    function loadFloodMaps() {
-        layers.floodmaps.clearLayers();
-        fetch("/api/flood-maps/?ordering=-created_at").then(r => r.json()).then(data => {
-            const results = data.features || data.results || [];
-            results.slice(0, 10).forEach(f => {
-                if (!f.geometry) return;
-                const confirmed = f.properties.confirmed_by_sensors;
-                L.geoJSON(f, {style: {color: confirmed ? "#dc2626" : "#0ea5e9", weight: 1, fillOpacity: 0.35}})
-                  .bindPopup(`
-                      <strong>${confirmed ? "⚠ IoT-Confirmed Flood" : "Satellite Detection"}</strong><br>
-                      <span class="fs-12">Area: ${f.properties.flooded_area_ha} ha</span><br>
-                      <span class="fs-12">Confidence: ${(f.properties.confidence*100).toFixed(0)}%</span><br>
-                      <span class="fs-12">Method: ${f.properties.detection_method}</span>
-                  `).addTo(layers.floodmaps);
-            });
-        }).catch(() => console.warn("Could not load flood maps"));
-    }
-
-    // ── Community reports (clustered) ───────────────────────────────────────
-    function loadReports() {
-        layers.reports.clearLayers();
-        fetch("/api/community-reports/").then(r => r.json()).then(data => {
-            (data.features || data.results || []).forEach(f => {
-                if (!f.geometry) return;
-                const [lon, lat] = f.geometry.coordinates;
-                const color = f.properties.severity === "severe" ? "#ef4444" : f.properties.severity === "moderate" ? "#f59e0b" : "#0ea5e9";
-                const marker = L.circleMarker([lat, lon], {radius: 7, color: "#fff", weight: 1.5, fillColor: color, fillOpacity: 0.9});
-                marker.bindPopup(`
-                    <strong>Community Report</strong> ${f.properties.is_verified ? '<span class="badge bg-success">Verified</span>' : '<span class="badge bg-secondary">Unverified</span>'}<br>
-                    <span class="fs-12">Severity: <b>${f.properties.severity}</b></span><br>
-                    <span class="fs-12">${f.properties.description || "No description"}</span>
-                `);
-                layers.reports.addLayer(marker);
-            });
-        }).catch(() => console.warn("Could not load community reports"));
-    }
-
-    // ── Initial load + periodic refresh ────────────────────────────────────
-    loadHeatmap(); loadSensors(); loadZones(); loadFloodMaps(); loadReports();
-
-    setInterval(() => { loadHeatmap(); }, 60000);
-    document.addEventListener("floodwatch:sensor-reading", () => loadHeatmap());
-    document.addEventListener("floodwatch:alert", () => { loadZones(); });
+document.addEventListener('DOMContentLoaded', () => {
+    initMap();
+    makeDraggable(document.getElementById('riskAreasPanel'), document.querySelector('#riskAreasPanel .panel-header'));
+    makeDraggable(document.getElementById('layersPanel'), document.querySelector('#layersPanel .panel-header'));
+    makeDraggable(document.getElementById('heatmapPanel'), document.querySelector('#heatmapPanel .panel-header'));
+    makeDraggable(document.getElementById('comparePanel'), document.querySelector('#comparePanel .panel-header'));
+    makeDraggable(document.getElementById('basemapPanel'), document.querySelector('#basemapPanel .panel-header'));
 });
 </script>
 {% endblock %}

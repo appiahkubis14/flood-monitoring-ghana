@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Weather Forecast — FloodWatch Ghana{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+    .wx-hero {
+        background: linear-gradient(135deg, #0B3D5C 0%, #0E7490 100%);
+        color: #fff; border-radius: 16px; padding: 24px 28px; position: relative; overflow: hidden;
+    }
+    .wx-hero::after {
+        content: ""; position: absolute; right: -40px; top: -40px; width: 220px; height: 220px;
+        background: radial-gradient(circle, rgba(255,255,255,0.10) 0%, transparent 70%);
+    }
+    .wx-hero-temp { font-size: 56px; font-weight: 700; line-height: 1; }
+    .wx-hero-meta { font-size: 13px; opacity: 0.9; }
+    .wx-hero iconify-icon { font-size: 64px; }
+    .wx-chip {
+        display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 50px;
+        font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.16); color: #fff;
+    }
+    .wx-outlook-card { border-radius: 14px; border: none; height: 100%; }
+    .wx-outlook-value { font-size: 30px; font-weight: 700; line-height: 1; }
+    .wx-risk-none    { background:#22c55e; } .wx-risk-low{ background:#84cc16; }
+    .wx-risk-moderate{ background:#eab308; } .wx-risk-high{ background:#f97316; }
+    .wx-risk-extreme { background:#ef4444; }
+    .wx-risk-pill {
+        display:inline-flex; align-items:center; gap:8px; padding:8px 18px; border-radius:50px;
+        color:#fff; font-weight:700; font-size:15px;
+    }
+    .wx-day-card {
+        border-radius: 12px; border: 1px solid #eef2f6; padding: 14px; text-align: center; height: 100%;
+        transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .wx-day-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(11,61,92,0.10); }
+    .wx-day-card.is-wet { border-color:#fca5a5; background:#fff5f5; }
+    [data-bs-theme="dark"] .wx-day-card { border-color:#2a2e38; }
+    [data-bs-theme="dark"] .wx-day-card.is-wet { background:#3a2424; border-color:#7f1d1d; }
+    .wx-day-rain { font-size: 13px; font-weight: 600; color: #0ea5e9; }
+    .wx-day-temp { font-size: 14px; }
+    .wx-day-temp .mx { font-weight: 700; }
+    .wx-day-temp .mn { color: #94a3b8; }
+    #wx-rain-map { height: 360px; border-radius: 12px; z-index: 1; }
+    .wx-unavailable {
+        display:none; padding:14px 18px; border-radius:12px; background:#fef3c7; color:#92400e;
+        font-weight:600; border:1px solid #fde68a;
+    }
+    .wx-zone-exceed { color:#ef4444; font-weight:700; }
+    .wx-updated { font-size: 12px; color:#94a3b8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h4 class="fw-bold mb-1">Live Weather &amp; Rainfall Forecast</h4>
+            <p class="text-muted mb-0">Greater Accra — rainfall-driven flood early-warning · source: Open-Meteo</p>
+        </div>
+        <div class="text-end">
+            <button id="wx-refresh" class="btn btn-sm btn-outline-primary">
+                <iconify-icon icon="solar:refresh-bold-duotone"></iconify-icon> Refresh
+            </button>
+            <div class="wx-updated mt-1" id="wx-updated">—</div>
+        </div>
+    </div>
+</div>
+
+<div id="wx-unavailable" class="wx-unavailable mb-3">
+    <iconify-icon icon="solar:cloud-cross-bold-duotone"></iconify-icon>
+    <span id="wx-unavailable-msg">Weather forecast temporarily unavailable.</span>
+</div>
+
+<!-- ── Hero current conditions + flood rainfall outlook ──────────────────── -->
+<div class="row">
+    <div class="col-xl-4 mb-3">
+        <div class="wx-hero h-100">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="wx-hero-meta mb-1">Greater Accra · Now</div>
+                    <div class="wx-hero-temp"><span id="wx-temp">—</span>&deg;</div>
+                    <div class="wx-hero-meta mt-1" id="wx-condition">—</div>
+                    <div class="wx-hero-meta">Feels like <span id="wx-feels">—</span>&deg;C</div>
+                </div>
+                <iconify-icon id="wx-icon" icon="solar:cloud-bold-duotone"></iconify-icon>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <span class="wx-chip"><iconify-icon icon="solar:waterdrop-bold-duotone"></iconify-icon> <span id="wx-humidity">—</span>% humidity</span>
+                <span class="wx-chip"><iconify-icon icon="solar:wind-bold-duotone"></iconify-icon> <span id="wx-wind">—</span> km/h</span>
+                <span class="wx-chip"><iconify-icon icon="solar:cloud-bold-duotone"></iconify-icon> <span id="wx-cloud">—</span>% cloud</span>
+                <span class="wx-chip"><iconify-icon icon="solar:gauge-bold-duotone"></iconify-icon> <span id="wx-pressure">—</span> hPa</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-8 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title mb-0">Flood Rainfall Outlook</h5>
+                    <span id="wx-risk-pill" class="wx-risk-pill wx-risk-none">
+                        <iconify-icon icon="solar:danger-triangle-bold-duotone"></iconify-icon>
+                        <span id="wx-risk-label">No significant rain</span>
+                    </span>
+                </div>
+                <p class="text-muted mb-3" id="wx-advice">—</p>
+                <div class="row text-center g-2">
+                    <div class="col-6 col-md-3">
+                        <div class="card wx-outlook-card bg-light"><div class="card-body py-3">
+                            <div class="wx-outlook-value text-info"><span id="wx-rain-3h">—</span></div>
+                            <div class="text-muted small">mm next 3h</div>
+                        </div></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card wx-outlook-card bg-light"><div class="card-body py-3">
+                            <div class="wx-outlook-value text-info"><span id="wx-rain-6h">—</span></div>
+                            <div class="text-muted small">mm next 6h</div>
+                        </div></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card wx-outlook-card bg-light"><div class="card-body py-3">
+                            <div class="wx-outlook-value text-primary"><span id="wx-rain-24h">—</span></div>
+                            <div class="text-muted small">mm next 24h</div>
+                        </div></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card wx-outlook-card bg-light"><div class="card-body py-3">
+                            <div class="wx-outlook-value text-danger"><span id="wx-rain-peak">—</span></div>
+                            <div class="text-muted small">peak mm/h · <span id="wx-peak-when">—</span></div>
+                        </div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── 48h hourly rain + temperature ────────────────────────────────────── -->
+<div class="row">
+    <div class="col-xl-8 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Next 48 Hours — Rainfall, Probability &amp; Temperature</h5>
+                <div id="wx-chart-hourly" style="min-height:320px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Rain Probability (next 24h)</h5>
+                <div id="wx-chart-prob" style="min-height:320px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── 7-day forecast cards ─────────────────────────────────────────────── -->
+<div class="row">
+    <div class="col-12 mb-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title mb-3">7-Day Forecast</h5>
+                <div class="row g-2" id="wx-daily"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Per-zone rainfall vs threshold + rain map ────────────────────────── -->
+<div class="row">
+    <div class="col-xl-7 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Forecast Rainfall by Flood Zone (next 24h)</h5>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Community / Zone</th>
+                                <th class="text-end">24h Rain (mm)</th>
+                                <th class="text-end">Threshold (mm)</th>
+                                <th class="text-end">Max Prob.</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="wx-zone-rows">
+                            <tr><td colspan="5" class="text-center text-muted py-4">Loading zone forecasts…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-5 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Accra Rain Map</h5>
+                <div id="wx-rain-map"></div>
+                <p class="wx-updated mt-2 mb-0">Live precipitation layer · RainViewer + OpenStreetMap</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const WX_RISK_CLASS = {
+    none: "wx-risk-none", low: "wx-risk-low", moderate: "wx-risk-moderate",
+    high: "wx-risk-high", extreme: "wx-risk-extreme",
+};
+const WX_RISK_TEXT = {
+    none: "No significant rain", low: "Low flood risk", moderate: "Moderate flood risk",
+    high: "High flood risk", extreme: "SEVERE flash-flood risk",
+};
+// Map WMO weather codes to Solar duotone icons.
+function wxIcon(code) {
+    if (code === 0 || code === 1) return "solar:sun-bold-duotone";
+    if (code === 2) return "solar:cloud-sun-bold-duotone";
+    if (code === 3) return "solar:cloud-bold-duotone";
+    if (code === 45 || code === 48) return "solar:fog-bold-duotone";
+    if (code >= 51 && code <= 57) return "solar:cloud-drizzle-bold-duotone";
+    if (code >= 61 && code <= 67) return "solar:cloud-rain-bold-duotone";
+    if (code >= 80 && code <= 82) return "solar:cloud-rain-bold-duotone";
+    if (code >= 95) return "solar:cloud-bolt-bold-duotone";
+    return "solar:cloud-bold-duotone";
+}
+function fmt(v, d) { return (v === null || v === undefined || isNaN(v)) ? "—" : (d !== undefined ? Number(v).toFixed(d) : v); }
+function dayName(dateStr) {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString([], {weekday: "short"});
+}
+function hourLabel(t) {
+    return new Date(t).toLocaleString([], {weekday: "short", hour: "2-digit"});
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    let hourlyChart, probChart;
+
+    // ── Rain map (OSM base + RainViewer precipitation overlay) ────────────
+    const map = L.map("wx-rain-map").setView([{{ accra_center.lat }}, {{ accra_center.lon }}], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap", maxZoom: 18,
+    }).addTo(map);
+    // RainViewer public radar tiles (no key) — latest frame.
+    fetch("https://api.rainviewer.com/public/weather-maps.json")
+        .then(r => r.json())
+        .then(api => {
+            const frames = (api.radar && api.radar.past) || [];
+            if (!frames.length) return;
+            const last = frames[frames.length - 1];
+            L.tileLayer(`${api.host}${last.path}/256/{z}/{x}/{y}/2/1_1.png`, {opacity: 0.6})
+                .addTo(map);
+        }).catch(() => console.warn("RainViewer overlay unavailable"));
+
+    function setUnavailable(show, msg) {
+        const box = document.getElementById("wx-unavailable");
+        box.style.display = show ? "block" : "none";
+        if (msg) document.getElementById("wx-unavailable-msg").textContent = msg;
+    }
+
+    function loadForecast(force) {
+        fetch("/api/dashboard/weather/forecast/" + (force ? "?refresh=1" : ""))
+            .then(r => r.json())
+            .then(data => {
+                if (!data.available) {
+                    setUnavailable(true, data.error || "Weather forecast temporarily unavailable.");
+                    return;
+                }
+                setUnavailable(false);
+                renderCurrent(data.current);
+                renderOutlook(data.rainfall_outlook);
+                renderHourly(data.hourly);
+                renderProbability(data.hourly);
+                renderDaily(data.daily);
+                document.getElementById("wx-updated").textContent =
+                    "Updated " + new Date(data.fetched_at).toLocaleTimeString();
+            })
+            .catch(() => setUnavailable(true, "Could not reach the weather service."));
+    }
+
+    function renderCurrent(c) {
+        document.getElementById("wx-temp").textContent = fmt(c.temperature_c, 0);
+        document.getElementById("wx-feels").textContent = fmt(c.apparent_temperature_c, 0);
+        document.getElementById("wx-condition").textContent = c.weather_label || "—";
+        document.getElementById("wx-humidity").textContent = fmt(c.humidity_pct, 0);
+        document.getElementById("wx-wind").textContent = fmt(c.wind_speed_kmh, 0);
+        document.getElementById("wx-cloud").textContent = fmt(c.cloud_cover_pct, 0);
+        document.getElementById("wx-pressure").textContent = fmt(c.surface_pressure_hpa, 0);
+        document.getElementById("wx-icon").setAttribute("icon", wxIcon(c.weather_code));
+    }
+
+    function renderOutlook(o) {
+        document.getElementById("wx-rain-3h").textContent = fmt(o.next_3h_rain_mm, 1);
+        document.getElementById("wx-rain-6h").textContent = fmt(o.next_6h_rain_mm, 1);
+        document.getElementById("wx-rain-24h").textContent = fmt(o.next_24h_rain_mm, 1);
+        document.getElementById("wx-rain-peak").textContent = fmt(o.peak_rain_mm, 1);
+        document.getElementById("wx-peak-when").textContent =
+            o.peak_rain_hour ? new Date(o.peak_rain_hour).toLocaleString([], {weekday:"short", hour:"2-digit"}) : "—";
+        document.getElementById("wx-advice").textContent = o.advice || "—";
+        const pill = document.getElementById("wx-risk-pill");
+        pill.className = "wx-risk-pill " + (WX_RISK_CLASS[o.risk_level] || "wx-risk-none");
+        document.getElementById("wx-risk-label").textContent = WX_RISK_TEXT[o.risk_level] || "—";
+    }
+
+    function renderHourly(hourly) {
+        const h = hourly.slice(0, 48);
+        const cats = h.map(x => hourLabel(x.time));
+        const rain = h.map(x => x.rain_mm || 0);
+        const temp = h.map(x => x.temperature_c);
+        const opts = {
+            chart: {height: 320, type: "line", toolbar: {show: true}, animations: {enabled: false}},
+            series: [
+                {name: "Rain (mm)", type: "column", data: rain},
+                {name: "Temp (°C)", type: "line", data: temp},
+            ],
+            xaxis: {categories: cats, tickAmount: 12, labels: {rotate: -45, style: {fontSize: "10px"}}},
+            yaxis: [
+                {title: {text: "Rain (mm)"}, min: 0},
+                {opposite: true, title: {text: "Temp (°C)"}},
+            ],
+            colors: ["#0ea5e9", "#f59e0b"],
+            stroke: {curve: "smooth", width: [0, 3]},
+            plotOptions: {bar: {columnWidth: "60%", borderRadius: 2}},
+            dataLabels: {enabled: false},
+            legend: {position: "top"},
+            tooltip: {shared: true, intersect: false},
+        };
+        if (hourlyChart) hourlyChart.updateOptions(opts);
+        else { hourlyChart = new ApexCharts(document.querySelector("#wx-chart-hourly"), opts); hourlyChart.render(); }
+    }
+
+    function renderProbability(hourly) {
+        const h = hourly.slice(0, 24);
+        const cats = h.map(x => new Date(x.time).toLocaleTimeString([], {hour: "2-digit"}));
+        const prob = h.map(x => x.precipitation_probability_pct || 0);
+        const opts = {
+            chart: {height: 320, type: "area", toolbar: {show: false}, animations: {enabled: false}},
+            series: [{name: "Rain probability (%)", data: prob}],
+            xaxis: {categories: cats, tickAmount: 8, labels: {style: {fontSize: "10px"}}},
+            yaxis: {min: 0, max: 100, title: {text: "%"}},
+            colors: ["#6366f1"],
+            fill: {type: "gradient", gradient: {shadeIntensity: 1, opacityFrom: 0.5, opacityTo: 0.05}},
+            stroke: {curve: "smooth", width: 2},
+            dataLabels: {enabled: false},
+        };
+        if (probChart) probChart.updateOptions(opts);
+        else { probChart = new ApexCharts(document.querySelector("#wx-chart-prob"), opts); probChart.render(); }
+    }
+
+    function renderDaily(daily) {
+        const wrap = document.getElementById("wx-daily");
+        wrap.innerHTML = "";
+        daily.forEach((d, idx) => {
+            const wet = (d.rain_sum_mm || 0) >= 15;
+            const col = document.createElement("div");
+            col.className = "col";
+            col.innerHTML = `
+                <div class="wx-day-card ${wet ? "is-wet" : ""}">
+                    <div class="fw-bold">${idx === 0 ? "Today" : dayName(d.date)}</div>
+                    <iconify-icon icon="${wxIcon(d.weather_code)}" style="font-size:30px;color:#0E7490"></iconify-icon>
+                    <div class="wx-day-temp"><span class="mx">${fmt(d.temp_max_c,0)}°</span> / <span class="mn">${fmt(d.temp_min_c,0)}°</span></div>
+                    <div class="wx-day-rain"><iconify-icon icon="solar:cloud-rain-bold-duotone"></iconify-icon> ${fmt(d.rain_sum_mm,1)} mm</div>
+                    <div class="text-muted" style="font-size:11px">${fmt(d.precipitation_probability_max_pct,0)}% · ${d.weather_label || ""}</div>
+                </div>`;
+            wrap.appendChild(col);
+        });
+    }
+
+    function loadZoneRainfall() {
+        fetch("/api/dashboard/weather/zone-rainfall/")
+            .then(r => r.json())
+            .then(data => {
+                const tbody = document.getElementById("wx-zone-rows");
+                const zones = data.zones || [];
+                if (!zones.length) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">No flood zones configured yet.</td></tr>`;
+                    return;
+                }
+                tbody.innerHTML = zones.map(z => {
+                    const exceed = z.exceeds_threshold;
+                    const statusBadge = !z.available
+                        ? `<span class="badge bg-secondary">No data</span>`
+                        : exceed
+                            ? `<span class="badge bg-danger">Exceeds threshold</span>`
+                            : `<span class="badge bg-success">Below threshold</span>`;
+                    return `<tr>
+                        <td><strong>${z.zone_name}</strong>${z.population_estimate ? `<br><span class="text-muted small">~${z.population_estimate.toLocaleString()} people</span>` : ""}</td>
+                        <td class="text-end ${exceed ? "wx-zone-exceed" : ""}">${fmt(z.rain_24h_mm,1)}</td>
+                        <td class="text-end">${z.rainfall_threshold_mm ? fmt(z.rainfall_threshold_mm,0) : "—"}</td>
+                        <td class="text-end">${fmt(z.max_precip_probability_pct,0)}%</td>
+                        <td class="text-center">${statusBadge}</td>
+                    </tr>`;
+                }).join("");
+            })
+            .catch(() => {
+                document.getElementById("wx-zone-rows").innerHTML =
+                    `<tr><td colspan="5" class="text-center text-muted py-4">Could not load zone rainfall.</td></tr>`;
+            });
+    }
+
+    // Initial load
+    loadForecast(false);
+    loadZoneRainfall();
+
+    document.getElementById("wx-refresh").addEventListener("click", () => {
+        loadForecast(true);
+        loadZoneRainfall();
+    });
+
+    // Auto-refresh every 10 minutes (forecast cache is 15 min server-side).
+    setInterval(() => { loadForecast(false); loadZoneRainfall(); }, 10 * 60 * 1000);
+});
+</script>
+{% endblock %}

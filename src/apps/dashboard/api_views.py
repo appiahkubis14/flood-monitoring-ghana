@@ -380,3 +380,191 @@ def zone_risk_scores(request):
 
     scores.sort(key=lambda s: s["risk_score"], reverse=True)
     return Response({"zones": scores})
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def weather_forecast(request):
+    """GET /api/dashboard/weather/forecast/ -- live current conditions +
+    48h hourly + 7-day daily forecast for Accra, with a flood-focused
+    rainfall outlook (rolling 3h/6h/24h rain totals and a risk
+    classification). Backs the entire weather page.
+
+    Served from a 15-minute server-side cache (see
+    ``apps.satellite.weather.fetch_accra_forecast``) so many concurrent
+    dashboard viewers don't each hit the upstream weather provider.
+    """
+    from apps.satellite.weather import fetch_accra_forecast
+
+    force = request.query_params.get("refresh") in ("1", "true", "yes")
+    return Response(fetch_accra_forecast(force_refresh=force))
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def weather_zone_rainfall(request):
+    """GET /api/dashboard/weather/zone-rainfall/ -- per-flood-zone 24h
+    rainfall outlook cross-referenced against each zone's own
+    ``rainfall_threshold_mm``, so the weather page can flag exactly which
+    communities are forecast to exceed their flood-trigger rainfall.
+    """
+    from apps.satellite.weather import fetch_zone_rainfall_forecasts
+
+    return Response({"zones": fetch_zone_rainfall_forecasts()})
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def satellite_overview(request):
+    """GET /api/dashboard/stats/satellite/overview/ -- KPI numbers + the
+    pipeline-health and detection-method donuts on the satellite flood-maps
+    page: total flood maps, sensor-confirmed share, total flooded area
+    detected, and the scene-processing funnel (discovered -> processed ->
+    failed) so an operator can see at a glance whether the PyGeoVision
+    pipeline is healthy.
+    """
+    from apps.satellite.models import FloodMap, SatelliteScene
+
+    maps = FloodMap.objects.all()
+    total_maps = maps.count()
+    confirmed = maps.filter(confirmed_by_sensors=True).count()
+    total_area = maps.aggregate(t=Sum("flooded_area_ha"))["t"] or 0.0
+
+    method_dist = dict(
+        maps.values_list("detection_method").annotate(n=Count("id")).order_by()
+    )
+    scene_status = dict(
+        SatelliteScene.objects.values_list("status").annotate(n=Count("id")).order_by()
+    )
+    source_dist = dict(
+        SatelliteScene.objects.values_list("source").annotate(n=Count("id")).order_by()
+    )
+
+    latest = maps.select_related("flood_zone", "source_scene").order_by("-created_at").first()
+
+    return Response({
+        "totals": {
+            "total_flood_maps": total_maps,
+            "sensor_confirmed": confirmed,
+            "satellite_only": total_maps - confirmed,
+            "confirmed_pct": round(confirmed / total_maps * 100, 1) if total_maps else 0.0,
+            "total_flooded_area_ha": round(total_area, 1),
+            "total_scenes": SatelliteScene.objects.count(),
+        },
+        "detection_method_distribution": method_dist,
+        "scene_status_distribution": scene_status,
+        "scene_source_distribution": source_dist,
+        "latest_map": {
+            "zone_name": (latest.flood_zone.name if latest and latest.flood_zone else "Accra-wide") if latest else None,
+            "flooded_area_ha": round(latest.flooded_area_ha, 1) if latest else None,
+            "confidence": latest.confidence if latest else None,
+            "confirmed_by_sensors": latest.confirmed_by_sensors if latest else None,
+            "created_at": latest.created_at.isoformat() if latest else None,
+            "scene_id": (latest.source_scene.scene_id if latest and latest.source_scene else None) if latest else None,
+        } if latest else None,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def satellite_flood_area_trend(request):
+    """GET /api/dashboard/stats/satellite/flood-area-trend/?days=90 -- total
+    detected flooded area (ha) per day from the satellite pipeline, for the
+    flood-maps page's main trend chart. Shows how flood extent across Accra
+    has evolved over the selected window -- the satellite counterpart to the
+    sensor water-level trend on the landing page.
+    """
+    from apps.satellite.models import FloodMap
+
+    days = int(request.query_params.get("days", 90))
+    since = timezone.now() - timedelta(days=days)
+
+    rows = (
+        FloodMap.objects.filter(created_at__gte=since)
+        .annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(total_area=Sum("flooded_area_ha"), n=Count("id"), avg_conf=Avg("confidence"))
+        .order_by("day")
+    )
+
+    return Response({
+        "days": [r["day"].isoformat() for r in rows],
+        "flooded_area_ha": [round(r["total_area"] or 0, 1) for r in rows],
+        "map_counts": [r["n"] for r in rows],
+        "avg_confidence": [round((r["avg_conf"] or 0), 2) for r in rows],
+    })
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def satellite_area_by_zone(request):
+    """GET /api/dashboard/stats/satellite/area-by-zone/ -- cumulative
+    detected flooded area per zone, for the horizontal bar chart ranking
+    which communities have had the most satellite-observed flooding.
+    """
+    from apps.satellite.models import FloodMap
+
+    rows = (
+        FloodMap.objects.values("flood_zone__name")
+        .annotate(total_area=Sum("flooded_area_ha"), n=Count("id"))
+        .order_by("-total_area")[:12]
+    )
+    return Response({
+        "zones": [r["flood_zone__name"] or "Accra-wide" for r in rows],
+        "flooded_area_ha": [round(r["total_area"] or 0, 1) for r in rows],
+        "map_counts": [r["n"] for r in rows],
+    })
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def historical_flood_trend(request):
+    """GET /api/dashboard/stats/historical-flood-trend/ -- digitised
+    historical flood records aggregated for the trend analysis page:
+    casualties, displaced persons, rainfall and affected area over time,
+    plus a per-year roll-up. Powers the historical-trends charts so they
+    load from the API (and auto-refresh) like every other chart, instead of
+    being baked into the template at render time.
+    """
+    from apps.alerts.models import HistoricalFloodRecord
+
+    records = (
+        HistoricalFloodRecord.objects.select_related("flood_zone")
+        .order_by("event_date")
+    )
+
+    points = [{
+        "date": r.event_date.isoformat(),
+        "zone": r.flood_zone.name if r.flood_zone else "Accra-wide",
+        "severity": r.severity,
+        "rainfall_mm": r.rainfall_mm,
+        "affected_area_ha": r.affected_area_ha,
+        "casualties": r.casualties,
+        "displaced_persons": r.displaced_persons,
+    } for r in records]
+
+    by_year: dict[int, dict[str, float]] = {}
+    for r in records:
+        y = r.event_date.year
+        agg = by_year.setdefault(y, {"casualties": 0, "displaced": 0, "events": 0, "rainfall_mm": 0.0})
+        agg["casualties"] += r.casualties
+        agg["displaced"] += r.displaced_persons
+        agg["events"] += 1
+        agg["rainfall_mm"] += (r.rainfall_mm or 0.0)
+
+    years = sorted(by_year.keys())
+    return Response({
+        "points": points,
+        "yearly": {
+            "years": years,
+            "casualties": [by_year[y]["casualties"] for y in years],
+            "displaced": [by_year[y]["displaced"] for y in years],
+            "events": [by_year[y]["events"] for y in years],
+            "rainfall_mm": [round(by_year[y]["rainfall_mm"], 1) for y in years],
+        },
+        "totals": {
+            "total_events": records.count(),
+            "total_casualties": sum(r.casualties for r in records),
+            "total_displaced": sum(r.displaced_persons for r in records),
+        },
+    })

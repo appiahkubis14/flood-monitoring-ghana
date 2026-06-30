@@ -13,5 +13,6 @@ urlpatterns = [
     path("reports/", views.ReportsView.as_view(), name="reports"),
     path("flood-maps/", views.FloodMapsView.as_view(), name="flood_maps"),
     path("flood-maps/timeseries/", views.TimeseriesView.as_view(), name="timeseries"),
+    path("weather/", views.WeatherView.as_view(), name="weather"),
     path("settings/", views.settings_view, name="settings"),
 ]

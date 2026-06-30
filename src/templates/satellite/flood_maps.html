@@ -1,40 +1,222 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Satellite Flood Maps — FloodWatch Ghana{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+    .sat-kpi { border-radius: 14px; border: none; height: 100%; }
+    .sat-kpi .kpi-value { font-size: 30px; font-weight: 700; line-height: 1; }
+    .sat-kpi .kpi-label { font-size: 13px; color: #94a3b8; }
+    .sat-kpi iconify-icon { font-size: 30px; }
+    #sat-extent-map { height: 340px; border-radius: 12px; z-index: 1; }
+    .sat-card-grid .card { transition: transform .15s ease, box-shadow .15s ease; }
+    .sat-card-grid .card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(11,61,92,0.10); }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="row mb-3">
-     <div class="col-12 d-flex justify-content-between align-items-center">
-          <div>
-               <h4 class="fw-bold mb-1">Satellite-Derived Flood Maps</h4>
-               <p class="text-muted mb-0">MNDWI-threshold flood detection from Sentinel-1/2 (PyGeoVision pipeline)</p>
-          </div>
-          <a href="{% url 'dashboard:timeseries' %}" class="btn btn-sm btn-outline-primary">View Historical Trends</a>
-     </div>
+    <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h4 class="fw-bold mb-1">Satellite-Derived Flood Maps</h4>
+            <p class="text-muted mb-0">MNDWI-threshold flood detection from Sentinel-1/2 · PyGeoVision pipeline</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'dashboard:timeseries' %}" class="btn btn-sm btn-outline-primary">Historical Trends</a>
+            <a href="{% url 'dashboard:weather' %}" class="btn btn-sm btn-outline-info">Rainfall Forecast</a>
+        </div>
+    </div>
+</div>
+
+<!-- ── KPI row ──────────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-1">
+    <div class="col-xl-3 col-md-6">
+        <div class="card sat-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-primary" id="sat-kpi-maps">—</div><div class="kpi-label">Flood maps generated</div></div>
+            <iconify-icon icon="solar:satellite-bold-duotone" class="text-primary"></iconify-icon>
+        </div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card sat-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-info" id="sat-kpi-area">—</div><div class="kpi-label">Total flooded area (ha)</div></div>
+            <iconify-icon icon="solar:waterdrops-bold-duotone" class="text-info"></iconify-icon>
+        </div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card sat-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-danger" id="sat-kpi-confirmed">—</div><div class="kpi-label">IoT-confirmed maps</div></div>
+            <iconify-icon icon="solar:check-circle-bold-duotone" class="text-danger"></iconify-icon>
+        </div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card sat-kpi"><div class="card-body d-flex justify-content-between align-items-center">
+            <div><div class="kpi-value text-warning" id="sat-kpi-scenes">—</div><div class="kpi-label">Scenes ingested</div></div>
+            <iconify-icon icon="solar:gallery-wide-bold-duotone" class="text-warning"></iconify-icon>
+        </div></div>
+    </div>
+</div>
+
+<!-- ── Charts row ───────────────────────────────────────────────────────── -->
+<div class="row">
+    <div class="col-xl-8 mb-3">
+        <div class="card h-100"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0">Detected Flood Extent Over Time</h5>
+                <select id="sat-trend-range" class="form-select form-select-sm" style="width:auto">
+                    <option value="30">Last 30 days</option>
+                    <option value="90" selected>Last 90 days</option>
+                    <option value="365">Last year</option>
+                </select>
+            </div>
+            <div id="sat-chart-trend" style="min-height:300px;"></div>
+        </div></div>
+    </div>
+    <div class="col-xl-4 mb-3">
+        <div class="card h-100"><div class="card-body">
+            <h5 class="card-title mb-3">Scene Pipeline Health</h5>
+            <div id="sat-chart-pipeline" style="min-height:300px;"></div>
+        </div></div>
+    </div>
 </div>
 
 <div class="row">
-     {% for fm in flood_maps %}
-     <div class="col-xl-4 col-md-6">
-          <div class="card">
-               <div class="card-body">
-                    <div class="d-flex justify-content-between mb-2">
-                         <span class="badge bg-{% if fm.confirmed_by_sensors %}danger{% else %}warning{% endif %}">
-                              {% if fm.confirmed_by_sensors %}IoT Confirmed{% else %}Satellite Only{% endif %}
-                         </span>
-                         <span class="fs-12 text-muted">{{ fm.created_at|date:"M d, Y H:i" }}</span>
-                    </div>
-                    <h5 class="card-title">{{ fm.flood_zone.name|default:"Accra-wide" }}</h5>
-                    <table class="table table-sm table-borderless mb-0">
-                         <tr><td class="text-muted">Flooded area</td><td class="text-end fw-semibold">{{ fm.flooded_area_ha }} ha</td></tr>
-                         <tr><td class="text-muted">Confidence</td><td class="text-end">{{ fm.confidence|floatformat:0 }}%</td></tr>
-                         <tr><td class="text-muted">Method</td><td class="text-end fs-12">{{ fm.detection_method }}</td></tr>
-                         <tr><td class="text-muted">Source scene</td><td class="text-end fs-12">{{ fm.source_scene.scene_id|default:"—"|truncatechars:20 }}</td></tr>
-                    </table>
-               </div>
-          </div>
-     </div>
-     {% empty %}
-     <div class="col-12"><p class="text-muted text-center py-5">No flood maps generated yet — the satellite pipeline runs every 24h, or trigger it manually from Settings.</p></div>
-     {% endfor %}
+    <div class="col-xl-7 mb-3">
+        <div class="card h-100"><div class="card-body">
+            <h5 class="card-title mb-3">Flooded Area by Community</h5>
+            <div id="sat-chart-by-zone" style="min-height:300px;"></div>
+        </div></div>
+    </div>
+    <div class="col-xl-5 mb-3">
+        <div class="card h-100"><div class="card-body">
+            <h5 class="card-title mb-3">Latest Flood Extent</h5>
+            <div id="sat-extent-map"></div>
+            <p class="text-muted small mt-2 mb-0" id="sat-extent-caption">Most recent satellite-detected flood polygon.</p>
+        </div></div>
+    </div>
 </div>
+
+<!-- ── Map gallery (server-rendered; works without JS) ──────────────────── -->
+<div class="row mb-2"><div class="col-12"><h5 class="fw-bold">Recent Flood Maps</h5></div></div>
+<div class="row sat-card-grid">
+    {% for fm in flood_maps %}
+    <div class="col-xl-4 col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="badge bg-{% if fm.confirmed_by_sensors %}danger{% else %}warning{% endif %}">
+                        {% if fm.confirmed_by_sensors %}IoT Confirmed{% else %}Satellite Only{% endif %}
+                    </span>
+                    <span class="fs-12 text-muted">{{ fm.created_at|date:"M d, Y H:i" }}</span>
+                </div>
+                <h5 class="card-title">{{ fm.flood_zone.name|default:"Accra-wide" }}</h5>
+                <table class="table table-sm table-borderless mb-0">
+                    <tr><td class="text-muted">Flooded area</td><td class="text-end fw-semibold">{{ fm.flooded_area_ha }} ha</td></tr>
+                    <tr><td class="text-muted">Confidence</td><td class="text-end">{{ fm.confidence|floatformat:0 }}%</td></tr>
+                    <tr><td class="text-muted">Method</td><td class="text-end fs-12">{{ fm.detection_method }}</td></tr>
+                    <tr><td class="text-muted">Source scene</td><td class="text-end fs-12">{{ fm.source_scene.scene_id|default:"—"|truncatechars:20 }}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12"><p class="text-muted text-center py-5">No flood maps generated yet — the satellite pipeline runs every 24h, or trigger it manually from Settings.</p></div>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    let trendChart, pipelineChart, byZoneChart;
+    const PIPE_COLORS = {
+        discovered:"#94a3b8", downloading:"#0ea5e9", downloaded:"#38bdf8",
+        processing:"#a855f7", processed:"#22c55e", failed:"#ef4444",
+    };
+
+    function fmt(v,d){ return (v===null||v===undefined||isNaN(v))?"—":(d!==undefined?Number(v).toFixed(d):Number(v).toLocaleString()); }
+
+    // ── Extent map ────────────────────────────────────────────────────────
+    const map = L.map("sat-extent-map").setView([5.60, -0.20], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {attribution:"&copy; OpenStreetMap", maxZoom:18}).addTo(map);
+    let extentLayer;
+    fetch("/api/flood-maps/latest/").then(r => r.ok ? r.json() : null).then(fm => {
+        // /api/flood-maps/latest/ returns a GeoJSON Feature: geometry at the
+        // top level, model fields under .properties (DRF-GIS GeoFeature).
+        if (!fm || !fm.geometry) return;
+        const props = fm.properties || {};
+        extentLayer = L.geoJSON(fm.geometry, {style:{color:"#ef4444", weight:2, fillColor:"#ef4444", fillOpacity:0.35}}).addTo(map);
+        try { map.fitBounds(extentLayer.getBounds(), {maxZoom: 13}); } catch(e){}
+        const cap = document.getElementById("sat-extent-caption");
+        cap.textContent = `${props.flood_zone_name || "Accra-wide"} — ${fmt(props.flooded_area_ha,1)} ha, ${fmt(props.confidence,0)}% confidence`;
+    }).catch(() => console.warn("No latest flood extent to map"));
+
+    // ── Overview KPIs + pipeline donut ────────────────────────────────────
+    function loadOverview() {
+        fetch("/api/dashboard/stats/satellite/overview/").then(r => r.json()).then(data => {
+            const t = data.totals;
+            document.getElementById("sat-kpi-maps").textContent = fmt(t.total_flood_maps);
+            document.getElementById("sat-kpi-area").textContent = fmt(t.total_flooded_area_ha,1);
+            document.getElementById("sat-kpi-confirmed").textContent = `${fmt(t.sensor_confirmed)} (${fmt(t.confirmed_pct,0)}%)`;
+            document.getElementById("sat-kpi-scenes").textContent = fmt(t.total_scenes);
+            renderPipeline(data.scene_status_distribution);
+        }).catch(() => console.warn("Could not load satellite overview"));
+    }
+
+    function renderPipeline(dist) {
+        const labels = Object.keys(dist);
+        const series = labels.map(k => dist[k]);
+        const colors = labels.map(k => PIPE_COLORS[k] || "#64748b");
+        const opts = {
+            chart:{type:"donut", height:300},
+            series: series.length ? series : [1],
+            labels: labels.length ? labels.map(l => l.charAt(0).toUpperCase()+l.slice(1)) : ["No scenes yet"],
+            colors: colors.length ? colors : ["#e2e8f0"],
+            legend:{position:"bottom"}, dataLabels:{enabled:true},
+        };
+        if (pipelineChart) pipelineChart.updateOptions(opts);
+        else { pipelineChart = new ApexCharts(document.querySelector("#sat-chart-pipeline"), opts); pipelineChart.render(); }
+    }
+
+    // ── Flood extent trend ────────────────────────────────────────────────
+    function loadTrend(days) {
+        fetch(`/api/dashboard/stats/satellite/flood-area-trend/?days=${days}`).then(r => r.json()).then(data => {
+            const opts = {
+                chart:{type:"area", height:300, toolbar:{show:true}, animations:{enabled:false}},
+                series:[
+                    {name:"Flooded area (ha)", type:"area", data:data.flooded_area_ha},
+                    {name:"Avg confidence", type:"line", data:data.avg_confidence.map(c => Math.round(c*100))},
+                ],
+                xaxis:{categories:data.days, type:"category", tickAmount:10, labels:{style:{fontSize:"10px"}}},
+                yaxis:[{title:{text:"Flooded area (ha)"}, min:0}, {opposite:true, max:100, title:{text:"Confidence %"}}],
+                colors:["#0ea5e9","#22c55e"],
+                fill:{type:["gradient","solid"], gradient:{opacityFrom:0.5, opacityTo:0.05}},
+                stroke:{curve:"smooth", width:[2,2]}, dataLabels:{enabled:false}, legend:{position:"top"},
+            };
+            if (trendChart) trendChart.updateOptions(opts);
+            else { trendChart = new ApexCharts(document.querySelector("#sat-chart-trend"), opts); trendChart.render(); }
+        }).catch(() => console.warn("Could not load flood-area trend"));
+    }
+
+    // ── Flooded area by zone ──────────────────────────────────────────────
+    function loadByZone() {
+        fetch("/api/dashboard/stats/satellite/area-by-zone/").then(r => r.json()).then(data => {
+            const opts = {
+                chart:{type:"bar", height:300, toolbar:{show:false}},
+                series:[{name:"Flooded area (ha)", data:data.flooded_area_ha}],
+                xaxis:{categories:data.zones},
+                colors:["#0ea5e9"], plotOptions:{bar:{horizontal:true, borderRadius:4}}, dataLabels:{enabled:true},
+            };
+            if (byZoneChart) byZoneChart.updateOptions(opts);
+            else { byZoneChart = new ApexCharts(document.querySelector("#sat-chart-by-zone"), opts); byZoneChart.render(); }
+        }).catch(() => console.warn("Could not load area-by-zone"));
+    }
+
+    loadOverview(); loadTrend(90); loadByZone();
+    document.getElementById("sat-trend-range").addEventListener("change", e => loadTrend(e.target.value));
+    setInterval(loadOverview, 60000);
+    document.addEventListener("floodwatch:alert", () => { loadOverview(); loadByZone(); });
+});
+</script>
 {% endblock %}
