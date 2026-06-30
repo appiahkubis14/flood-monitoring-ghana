@@ -1,0 +1,180 @@
+# FloodWatch Ghana — local development stack
+#
+# Brings up PostgreSQL+PostGIS, Redis, the Django app (Gunicorn), Daphne
+# (WebSockets), and a Celery worker + beat scheduler. Mosquitto (MQTT) is
+# included so ESP32 sensors can be pointed at this stack directly in dev.
+#
+# Usage:
+#   cp .env.example .env   # then fill in secrets
+#   docker compose up --build
+#   docker compose exec web python manage.py migrate
+#   docker compose exec web python manage.py createsuperuser
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-floodwatch}
+      POSTGRES_USER: ${DB_USER:-floodwatch}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-floodwatch}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-floodwatch}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./deployment/docker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: gunicorn -c /app/deployment/gunicorn/gunicorn.conf.py floodwatch.wsgi:application
+    volumes:
+      - ./src:/app/src
+      - ./deployment:/app/deployment
+      - media_data:/app/src/media
+      - static_data:/app/src/staticfiles
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      MQTT_BROKER_HOST: mosquitto
+      DJANGO_SETTINGS_MODULE: floodwatch.settings.development
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./deployment/nginx/floodwatch.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_data:/app/src/staticfiles:ro
+      - media_data:/app/src/media:ro
+    ports:
+      - "80:80"
+    profiles: ["production"]  # not started by default `docker compose up` in dev
+    depends_on:
+      - web
+      - websocket
+
+  websocket:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: daphne -b 0.0.0.0 -p 8001 floodwatch.asgi:application
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      DJANGO_SETTINGS_MODULE: floodwatch.settings.development
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mqtt_bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: python manage.py run_mqtt_bridge
+    volumes:
+      - ./src:/app/src
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      MQTT_BROKER_HOST: mosquitto
+      DJANGO_SETTINGS_MODULE: floodwatch.settings.development
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A floodwatch worker --loglevel=info --concurrency=4
+    volumes:
+      - ./src:/app/src
+      - media_data:/app/src/media
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      MQTT_BROKER_HOST: mosquitto
+      DJANGO_SETTINGS_MODULE: floodwatch.settings.development
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A floodwatch beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - ./src:/app/src
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      DJANGO_SETTINGS_MODULE: floodwatch.settings.development
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_log:
+  media_data:
+  static_data:

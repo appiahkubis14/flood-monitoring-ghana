@@ -1,0 +1,29 @@
+/* FloodWatch Ghana — custom overrides on top of the Larkon theme */
+
+.fw-status-banner {
+    padding: 0.6rem 1.25rem;
+    font-size: 0.9rem;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 1050;
+}
+.fw-status-banner iconify-icon { font-size: 1.2rem; }
+.fw-status-yellow { background-color: #eab308; color: #1a1a1a; }
+.fw-status-orange { background-color: #f97316; }
+.fw-status-red    { background-color: #dc2626; }
+
+.avatar-md {
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.auth-bg-cover {
+    background: linear-gradient(135deg, #0c4a6e 0%, #075985 50%, #0369a1 100%);
+}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Sensor Stations — FloodWatch Ghana{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12">
+          <h4 class="fw-bold mb-1">Sensor Stations</h4>
+          <p class="text-muted mb-0">{{ stations.count }} ESP32 stations across the Odaw River basin and Korle Lagoon</p>
+     </div>
+</div>
+
+<div class="row">
+     <div class="col-xl-8">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Battery Levels — Stations Needing Attention</h5></div>
+               <div class="card-body"><div id="chart-battery-levels" style="height: 280px;"></div></div>
+          </div>
+     </div>
+     <div class="col-xl-4">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Network Status</h5></div>
+               <div class="card-body"><div id="chart-sensors-status-mini" style="height: 280px;"></div></div>
+          </div>
+     </div>
+</div>
+
+<div class="row">
+     {% for station in stations %}
+     <div class="col-xl-4 col-md-6">
+          <div class="card">
+               <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                         <h5 class="card-title mb-0">{{ station.name }}</h5>
+                         <span class="badge bg-{% if station.status == 'online' %}success{% elif station.status == 'maintenance' %}warning{% else %}danger{% endif %}">
+                              {{ station.get_status_display }}
+                         </span>
+                    </div>
+                    <p class="text-muted fs-13 mb-2">
+                         {{ station.community|default:"—" }} · {{ station.serial_number }}
+                         {% if station.flood_zone %}· {{ station.flood_zone.name }}{% endif %}
+                    </p>
+                    <div class="d-flex justify-content-between fs-13 mb-2">
+                         <span><iconify-icon icon="solar:battery-bold-duotone"></iconify-icon> {{ station.battery_level }}%</span>
+                         <span class="text-muted">
+                              {% if station.last_reading_at %}{{ station.last_reading_at|timesince }} ago{% else %}No readings yet{% endif %}
+                         </span>
+                    </div>
+                    <div id="chart-station-{{ station.id }}" style="height: 160px;"></div>
+               </div>
+          </div>
+     </div>
+     {% empty %}
+     <div class="col-12"><p class="text-muted text-center py-5">No sensor stations registered yet.</p></div>
+     {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const STATUS_COLORS = {online: "#22c55e", offline: "#ef4444", maintenance: "#f59e0b", faulty: "#6b7280"};
+
+    fetch("/api/dashboard/stats/station-battery/").then(r => r.json()).then(data => {
+        const colors = data.statuses.map(s => STATUS_COLORS[s] || "#888");
+        new ApexCharts(document.querySelector("#chart-battery-levels"), {
+            chart: {type: "bar", height: 280, toolbar: {show: false}},
+            series: [{name: "Battery %", data: data.battery_levels}],
+            xaxis: {categories: data.stations},
+            plotOptions: {bar: {horizontal: true, borderRadius: 4, distributed: true}},
+            colors,
+            dataLabels: {enabled: true, formatter: v => v + "%"},
+            legend: {show: false},
+        }).render();
+    }).catch(() => console.warn("Could not load battery levels"));
+
+    fetch("/api/dashboard/stats/overview/").then(r => r.json()).then(data => {
+        const dist = data.station_status_distribution;
+        new ApexCharts(document.querySelector("#chart-sensors-status-mini"), {
+            chart: {type: "donut", height: 280},
+            series: [dist.online, dist.offline, dist.maintenance, dist.faulty],
+            labels: ["Online", "Offline", "Maintenance", "Faulty"],
+            colors: [STATUS_COLORS.online, STATUS_COLORS.offline, STATUS_COLORS.maintenance, STATUS_COLORS.faulty],
+            legend: {position: "bottom"},
+            dataLabels: {enabled: true},
+        }).render();
+    }).catch(() => console.warn("Could not load station status overview"));
+
+    {% for station in stations %}
+    fetch("/api/sensors/{{ station.id }}/readings/?hours=24").then(r => r.json()).then(data => {
+        const results = data.results || data;
+        const categories = results.map(r => new Date(r.timestamp).toLocaleTimeString());
+        const waterLevels = results.map(r => r.water_level_cm);
+        new ApexCharts(document.querySelector("#chart-station-{{ station.id }}"), {
+            chart: {type: "area", height: 160, toolbar: {show: false}, sparkline: {enabled: false}},
+            series: [{name: "Water level (cm)", data: waterLevels}],
+            xaxis: {categories, labels: {show: false}},
+            yaxis: {show: true},
+            colors: ["#0ea5e9"],
+            dataLabels: {enabled: false},
+            stroke: {curve: "smooth", width: 2},
+        }).render();
+    }).catch(() => {});
+    {% endfor %}
+});
+</script>
+{% endblock %}

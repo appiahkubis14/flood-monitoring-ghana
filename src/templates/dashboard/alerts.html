@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Alerts — FloodWatch Ghana{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12">
+          <h4 class="fw-bold mb-1">Alerts &amp; Flood Events</h4>
+          <p class="text-muted mb-0">Event timeline and individual alert delivery history</p>
+     </div>
+</div>
+
+<div class="row">
+     <div class="col-xl-12">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Rainfall — Last 7 Days (Accra-wide)</h5></div>
+               <div class="card-body"><div id="chart-rainfall-7d" style="height: 220px;"></div></div>
+          </div>
+     </div>
+</div>
+
+<div class="row">
+     <div class="col-xl-5">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Flood Events</h5></div>
+               <div class="card-body p-0">
+                    <div class="table-responsive">
+                         <table class="table table-hover mb-0">
+                              <thead><tr><th>Zone</th><th>Severity</th><th>Started</th><th>Status</th></tr></thead>
+                              <tbody>
+                                   {% for event in events %}
+                                   <tr>
+                                        <td>{{ event.flood_zone.name }}</td>
+                                        <td><span class="badge bg-{% if event.severity == 'red' %}danger{% elif event.severity == 'orange' %}warning{% elif event.severity == 'yellow' %}info{% else %}success{% endif %}">{{ event.get_severity_display }}</span></td>
+                                        <td class="fs-13">{{ event.started_at|date:"M d, H:i" }}</td>
+                                        <td>{% if event.ended_at %}<span class="badge bg-secondary">Resolved</span>{% else %}<span class="badge bg-danger">Active</span>{% endif %}</td>
+                                   </tr>
+                                   {% empty %}
+                                   <tr><td colspan="4" class="text-muted text-center py-3">No flood events recorded</td></tr>
+                                   {% endfor %}
+                              </tbody>
+                         </table>
+                    </div>
+               </div>
+          </div>
+     </div>
+     <div class="col-xl-7">
+          <div class="card">
+               <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Recent Alert Deliveries</h5>
+                    {% if user.is_staff %}
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#broadcastModal">
+                         <iconify-icon icon="solar:megaphone-bold-duotone"></iconify-icon> Broadcast
+                    </button>
+                    {% endif %}
+               </div>
+               <div class="card-body p-0">
+                    <div class="table-responsive">
+                         <table class="table table-hover mb-0">
+                              <thead><tr><th>Recipient</th><th>Channel</th><th>Severity</th><th>Status</th><th>When</th></tr></thead>
+                              <tbody>
+                                   {% for alert in recent_alerts %}
+                                   <tr>
+                                        <td class="fs-13">{{ alert.recipient.full_name|default:alert.recipient.phone_number }}</td>
+                                        <td><span class="badge bg-light text-dark">{{ alert.get_channel_display }}</span></td>
+                                        <td><span class="badge bg-{% if alert.severity == 'red' %}danger{% elif alert.severity == 'orange' %}warning{% else %}info{% endif %}">{{ alert.get_severity_display }}</span></td>
+                                        <td>
+                                             <span class="badge bg-{% if alert.delivery_status == 'delivered' %}success{% elif alert.delivery_status == 'failed' %}danger{% elif alert.delivery_status == 'suppressed' %}secondary{% else %}info{% endif %}">
+                                                  {{ alert.get_delivery_status_display }}
+                                             </span>
+                                        </td>
+                                        <td class="fs-12 text-muted">{{ alert.created_at|timesince }} ago</td>
+                                   </tr>
+                                   {% empty %}
+                                   <tr><td colspan="5" class="text-muted text-center py-3">No alerts sent yet</td></tr>
+                                   {% endfor %}
+                              </tbody>
+                         </table>
+                    </div>
+               </div>
+          </div>
+     </div>
+</div>
+
+{% if user.is_staff %}
+<div class="modal fade" id="broadcastModal" tabindex="-1">
+     <div class="modal-dialog">
+          <div class="modal-content">
+               <div class="modal-header">
+                    <h5 class="modal-title">Send Manual Broadcast</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+               </div>
+               <div class="modal-body">
+                    <div class="mb-3">
+                         <label class="form-label">Message</label>
+                         <textarea class="form-control" id="broadcast-message" rows="3" placeholder="e.g. Shelter open at Alajo Community Centre"></textarea>
+                    </div>
+                    <div class="mb-3">
+                         <label class="form-label">Severity</label>
+                         <select class="form-select" id="broadcast-severity">
+                              <option value="yellow">Watch</option>
+                              <option value="orange" selected>Warning</option>
+                              <option value="red">Emergency</option>
+                         </select>
+                    </div>
+               </div>
+               <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="send-broadcast-btn">Send</button>
+               </div>
+          </div>
+     </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    fetch("/api/dashboard/stats/rainfall-trend/?days=7").then(r => r.json()).then(data => {
+        new ApexCharts(document.querySelector("#chart-rainfall-7d"), {
+            chart: {type: "bar", height: 220, toolbar: {show: false}},
+            series: [{name: "Total rainfall (mm)", data: data.total_rainfall_mm}],
+            xaxis: {categories: data.days},
+            colors: ["#6366f1"],
+            plotOptions: {bar: {columnWidth: "50%", borderRadius: 4}},
+            dataLabels: {enabled: false},
+        }).render();
+    }).catch(() => console.warn("Could not load rainfall trend"));
+});
+
+document.getElementById("send-broadcast-btn")?.addEventListener("click", function () {
+    const message = document.getElementById("broadcast-message").value;
+    const severity = document.getElementById("broadcast-severity").value;
+    if (!message.trim()) { alert("Message is required"); return; }
+    fetch("/api/admin/alerts/broadcast/", {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken")},
+        body: JSON.stringify({message, severity}),
+    }).then(r => r.json()).then(data => {
+        alert("Broadcast queued (task " + data.task_id + ")");
+        location.reload();
+    }).catch(() => alert("Failed to send broadcast"));
+});
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(";").shift();
+}
+</script>
+{% endblock %}

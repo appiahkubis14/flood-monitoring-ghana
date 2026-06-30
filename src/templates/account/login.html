@@ -1,0 +1,55 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+     <meta charset="utf-8" />
+     <title>Sign In — FloodWatch Ghana</title>
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <link href="{% static 'vendor/larkon/css/vendor.min.css' %}" rel="stylesheet" type="text/css" />
+     <link href="{% static 'vendor/larkon/css/icons.min.css' %}" rel="stylesheet" type="text/css" />
+     <link href="{% static 'vendor/larkon/css/app.min.css' %}" rel="stylesheet" type="text/css" />
+     <link href="{% static 'css/floodwatch.css' %}" rel="stylesheet" type="text/css" />
+</head>
+<body class="auth-bg-cover">
+     <div class="account-pages py-5 d-flex justify-content-center align-items-center" style="min-height: 100vh;">
+          <div class="container">
+               <div class="row justify-content-center">
+                    <div class="col-md-6 col-lg-5">
+                         <div class="card border-0 shadow-sm">
+                              <div class="card-body p-4">
+                                   <div class="text-center mb-4">
+                                        <iconify-icon icon="solar:waterdrops-bold-duotone" class="fs-48 text-primary"></iconify-icon>
+                                        <h4 class="mt-2 fw-bold">FloodWatch Ghana</h4>
+                                        <p class="text-muted">Sign in to access the monitoring dashboard</p>
+                                   </div>
+
+                                   {% if form.errors %}
+                                   <div class="alert alert-danger">Invalid username or password.</div>
+                                   {% endif %}
+
+                                   <form method="post">
+                                        {% csrf_token %}
+                                        <div class="mb-3">
+                                             <label class="form-label">Username</label>
+                                             <input type="text" name="username" class="form-control" required autofocus>
+                                        </div>
+                                        <div class="mb-3">
+                                             <label class="form-label">Password</label>
+                                             <input type="password" name="password" class="form-control" required>
+                                        </div>
+                                        <input type="hidden" name="next" value="{{ next }}">
+                                        <button type="submit" class="btn btn-primary w-100">Sign In</button>
+                                   </form>
+                              </div>
+                         </div>
+                         <p class="text-center text-muted fs-13 mt-3">
+                              Community member without an account? <a href="{% url 'dashboard:reports' %}">Submit a flood report</a> without signing in.
+                         </p>
+                    </div>
+               </div>
+          </div>
+     </div>
+     <script src="{% static 'vendor/larkon/js/vendor.js' %}"></script>
+     <script src="{% static 'vendor/larkon/js/app.js' %}"></script>
+</body>
+</html>

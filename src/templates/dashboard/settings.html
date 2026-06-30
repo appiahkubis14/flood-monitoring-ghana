@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Settings — FloodWatch Ghana{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12">
+          <h4 class="fw-bold mb-1">Threshold &amp; System Settings</h4>
+          <p class="text-muted mb-0">Per-zone alert thresholds (admin only)</p>
+     </div>
+</div>
+
+<div class="row">
+     {% for zone in zones %}
+     <div class="col-xl-6">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">{{ zone.name }}</h5></div>
+               <div class="card-body">
+                    <form class="threshold-form" data-zone-id="{{ zone.id }}">
+                         <div class="mb-3">
+                              <label class="form-label">Water Level Threshold (cm)</label>
+                              <input type="number" step="0.1" class="form-control water-level-input" value="{{ zone.water_level_threshold_cm }}">
+                         </div>
+                         <div class="mb-3">
+                              <label class="form-label">Rainfall Threshold (mm/hour)</label>
+                              <input type="number" step="0.1" class="form-control rainfall-input" value="{{ zone.rainfall_threshold_mm }}">
+                         </div>
+                         <button type="submit" class="btn btn-primary btn-sm">Save Thresholds</button>
+                         <span class="save-status fs-12 text-success ms-2"></span>
+                    </form>
+               </div>
+          </div>
+     </div>
+     {% empty %}
+     <div class="col-12"><p class="text-muted text-center py-5">No flood zones configured.</p></div>
+     {% endfor %}
+</div>
+
+<div class="row mt-2">
+     <div class="col-12">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Manual Satellite Run</h5></div>
+               <div class="card-body">
+                    <p class="text-muted">Trigger an immediate satellite monitoring cycle (normally runs automatically every 24h).</p>
+                    <button class="btn btn-outline-primary" id="run-satellite-btn">
+                         <iconify-icon icon="solar:satellite-bold-duotone"></iconify-icon> Run Now
+                    </button>
+                    <span id="satellite-run-status" class="fs-13 ms-2"></span>
+               </div>
+          </div>
+     </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(";").shift();
+}
+
+document.querySelectorAll(".threshold-form").forEach(form => {
+    form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const zoneId = form.dataset.zoneId;
+        const payload = {
+            zone_id: zoneId,
+            water_level_threshold_cm: form.querySelector(".water-level-input").value,
+            rainfall_threshold_mm: form.querySelector(".rainfall-input").value,
+        };
+        fetch("/api/admin/thresholds/", {
+            method: "PUT",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken")},
+            body: JSON.stringify(payload),
+        }).then(r => r.json()).then(() => {
+            const status = form.querySelector(".save-status");
+            status.textContent = "Saved ✓";
+            setTimeout(() => status.textContent = "", 2000);
+        }).catch(() => alert("Failed to save thresholds"));
+    });
+});
+
+document.getElementById("run-satellite-btn").addEventListener("click", function () {
+    const statusEl = document.getElementById("satellite-run-status");
+    statusEl.textContent = "Queuing...";
+    fetch("/api/admin/satellite/run/", {
+        method: "POST", headers: {"X-CSRFToken": getCookie("csrftoken")},
+    }).then(r => r.json()).then(data => {
+        statusEl.textContent = `Queued (task ${data.task_id})`;
+    }).catch(() => { statusEl.textContent = "Failed to queue task"; });
+});
+</script>
+{% endblock %}

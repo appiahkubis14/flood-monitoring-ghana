@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Dashboard — FloodWatch Ghana{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12">
+          <h4 class="fw-bold mb-1">Accra Flood Monitoring Overview</h4>
+          <p class="text-muted">Odaw River Basin &amp; Korle Lagoon — live IoT + satellite intelligence</p>
+     </div>
+</div>
+
+<!-- ── KPI cards (live-refreshed from /api/dashboard/stats/overview/) ── -->
+<div class="row">
+     <div class="col-xl-3 col-md-6">
+          <div class="card">
+               <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                         <div>
+                              <p class="text-muted mb-1">Sensor Stations</p>
+                              <h3 class="mb-0" id="kpi-stations">{{ station_summary.online }}/{{ station_summary.total }} <span class="fs-13 text-muted">online</span></h3>
+                         </div>
+                         <div class="avatar-md bg-soft-primary rounded">
+                              <iconify-icon icon="solar:cpu-bolt-bold-duotone" class="fs-32 text-primary d-flex align-items-center justify-content-center h-100"></iconify-icon>
+                         </div>
+                    </div>
+               </div>
+          </div>
+     </div>
+     <div class="col-xl-3 col-md-6">
+          <div class="card">
+               <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                         <div>
+                              <p class="text-muted mb-1">Active Flood Events</p>
+                              <h3 class="mb-0" id="kpi-active-events">{{ active_events.count }}</h3>
+                         </div>
+                         <div class="avatar-md bg-soft-danger rounded">
+                              <iconify-icon icon="solar:siren-bold-duotone" class="fs-32 text-danger d-flex align-items-center justify-content-center h-100"></iconify-icon>
+                         </div>
+                    </div>
+               </div>
+          </div>
+     </div>
+     <div class="col-xl-3 col-md-6">
+          <div class="card">
+               <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                         <div>
+                              <p class="text-muted mb-1">Alerts (24h)</p>
+                              <h3 class="mb-0" id="kpi-alerts-24h">—</h3>
+                         </div>
+                         <div class="avatar-md bg-soft-warning rounded">
+                              <iconify-icon icon="solar:bell-bing-bold-duotone" class="fs-32 text-warning d-flex align-items-center justify-content-center h-100"></iconify-icon>
+                         </div>
+                    </div>
+               </div>
+          </div>
+     </div>
+     <div class="col-xl-3 col-md-6">
+          <div class="card">
+               <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                         <div>
+                              <p class="text-muted mb-1">Reports (24h)</p>
+                              <h3 class="mb-0" id="kpi-reports-24h">—</h3>
+                         </div>
+                         <div class="avatar-md bg-soft-info rounded">
+                              <iconify-icon icon="solar:document-text-bold-duotone" class="fs-32 text-info d-flex align-items-center justify-content-center h-100"></iconify-icon>
+                         </div>
+                    </div>
+               </div>
+          </div>
+     </div>
+</div>
+
+<!-- ── Map + recent alerts ── -->
+<div class="row">
+     <div class="col-xl-8">
+          <div class="card">
+               <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Live Map — Sensors &amp; Flood Zones</h5>
+                    <a href="{% url 'dashboard:map' %}" class="btn btn-sm btn-outline-primary">Open full map</a>
+               </div>
+               <div class="card-body p-0">
+                    <div id="dashboard-mini-map" style="height: 420px; width: 100%;"></div>
+               </div>
+          </div>
+     </div>
+     <div class="col-xl-4">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Recent Alerts</h5></div>
+               <div class="card-body p-0">
+                    <div class="table-responsive">
+                         <table class="table table-hover mb-0">
+                              <tbody>
+                                   {% for alert in recent_alerts %}
+                                   <tr>
+                                        <td>
+                                             <span class="badge bg-{% if alert.severity == 'red' %}danger{% elif alert.severity == 'orange' %}warning{% elif alert.severity == 'yellow' %}info{% else %}success{% endif %}">
+                                                  {{ alert.get_severity_display }}
+                                             </span>
+                                        </td>
+                                        <td class="fs-13">{{ alert.recipient.full_name|default:alert.recipient.phone_number }}</td>
+                                        <td class="fs-12 text-muted">{{ alert.created_at|timesince }} ago</td>
+                                   </tr>
+                                   {% empty %}
+                                   <tr><td class="text-muted text-center py-3">No alerts yet</td></tr>
+                                   {% endfor %}
+                              </tbody>
+                         </table>
+                    </div>
+               </div>
+          </div>
+     </div>
+</div>
+
+<!-- ── Trend charts row ── -->
+<div class="row">
+     <div class="col-xl-8">
+          <div class="card">
+               <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Water Level &amp; Rainfall — Last 24h</h5>
+                    <select class="form-select form-select-sm w-auto" id="water-level-range">
+                         <option value="24">Last 24 hours</option>
+                         <option value="72">Last 3 days</option>
+                         <option value="168">Last 7 days</option>
+                    </select>
+               </div>
+               <div class="card-body"><div id="chart-water-level-trend" style="height: 300px;"></div></div>
+          </div>
+     </div>
+     <div class="col-xl-4">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Flood Risk by Zone</h5></div>
+               <div class="card-body"><div id="chart-zone-risk" style="height: 300px;"></div></div>
+          </div>
+     </div>
+</div>
+
+<div class="row">
+     <div class="col-xl-4">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Sensor Station Status</h5></div>
+               <div class="card-body"><div id="chart-station-status" style="height: 260px;"></div></div>
+          </div>
+     </div>
+     <div class="col-xl-4">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Alerts — Last 30 Days</h5></div>
+               <div class="card-body"><div id="chart-alerts-trend" style="height: 260px;"></div></div>
+          </div>
+     </div>
+     <div class="col-xl-4">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Most Affected Zones</h5></div>
+               <div class="card-body"><div id="chart-events-by-zone" style="height: 260px;"></div></div>
+          </div>
+     </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const RISK_COLORS = {green: "#22c55e", yellow: "#eab308", orange: "#f97316", red: "#ef4444"};
+const STATUS_COLORS = {online: "#22c55e", offline: "#ef4444", maintenance: "#f59e0b", faulty: "#6b7280"};
+
+document.addEventListener("DOMContentLoaded", function () {
+    // ── Mini map ──────────────────────────────────────────────────────────
+    const map = L.map("dashboard-mini-map").setView([{{ accra_center.lat }}, {{ accra_center.lon }}], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors", maxZoom: 18,
+    }).addTo(map);
+
+    fetch("/api/sensors/").then(r => r.json()).then(data => {
+        (data.features || data.results || []).forEach(f => {
+            const coords = f.geometry.coordinates;
+            const color = STATUS_COLORS[f.properties.status] || "#888";
+            L.circleMarker([coords[1], coords[0]], {radius: 8, color, fillColor: color, fillOpacity: 0.8})
+              .bindPopup(`<b>${f.properties.name}</b><br>${f.properties.status}`)
+              .addTo(map);
+        });
+    }).catch(() => console.warn("Could not load sensor stations for mini-map"));
+
+    fetch("/api/flood-zones/").then(r => r.json()).then(data => {
+        (data.features || data.results || []).forEach(f => {
+            L.geoJSON(f, {style: {color: RISK_COLORS[f.properties.current_risk_level] || "#888", weight: 2, fillOpacity: 0.15}})
+              .bindPopup(`<b>${f.properties.name}</b><br>Risk: ${f.properties.current_risk_level}`).addTo(map);
+        });
+    }).catch(() => console.warn("Could not load flood zones for mini-map"));
+
+    // ── KPI cards + donut/bar charts from /api/dashboard/stats/overview/ ──
+    function loadOverview() {
+        fetch("/api/dashboard/stats/overview/").then(r => r.json()).then(data => {
+            document.getElementById("kpi-alerts-24h").textContent = data.totals.total_alerts_24h;
+            document.getElementById("kpi-reports-24h").textContent = data.totals.total_reports_24h;
+            document.getElementById("kpi-active-events").textContent = data.totals.active_events;
+
+            renderZoneRiskChart(data.zone_risk_distribution);
+            renderStationStatusChart(data.station_status_distribution);
+        }).catch(() => console.warn("Could not load overview stats"));
+    }
+
+    let zoneRiskChart, stationStatusChart, alertsTrendChart, eventsByZoneChart, waterLevelChart;
+
+    function renderZoneRiskChart(dist) {
+        const series = [dist.green, dist.yellow, dist.orange, dist.red];
+        const opts = {
+            chart: {type: "donut", height: 300},
+            series, labels: ["Safe", "Watch", "Warning", "Emergency"],
+            colors: [RISK_COLORS.green, RISK_COLORS.yellow, RISK_COLORS.orange, RISK_COLORS.red],
+            legend: {position: "bottom"},
+            dataLabels: {enabled: true},
+        };
+        if (zoneRiskChart) zoneRiskChart.updateOptions(opts);
+        else { zoneRiskChart = new ApexCharts(document.querySelector("#chart-zone-risk"), opts); zoneRiskChart.render(); }
+    }
+
+    function renderStationStatusChart(dist) {
+        const series = [dist.online, dist.offline, dist.maintenance, dist.faulty];
+        const opts = {
+            chart: {type: "donut", height: 260},
+            series, labels: ["Online", "Offline", "Maintenance", "Faulty"],
+            colors: [STATUS_COLORS.online, STATUS_COLORS.offline, STATUS_COLORS.maintenance, STATUS_COLORS.faulty],
+            legend: {position: "bottom"},
+            dataLabels: {enabled: true},
+        };
+        if (stationStatusChart) stationStatusChart.updateOptions(opts);
+        else { stationStatusChart = new ApexCharts(document.querySelector("#chart-station-status"), opts); stationStatusChart.render(); }
+    }
+
+    // ── Water level + rainfall trend (combo chart) ─────────────────────────
+    function loadWaterLevelTrend(hours) {
+        fetch(`/api/dashboard/stats/water-level-trend/?hours=${hours}`).then(r => r.json()).then(data => {
+            const categories = data.buckets.map(b => new Date(b.timestamp).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit"}));
+            const waterLevels = data.buckets.map(b => b.avg_water_level_cm);
+            const rainfall = data.buckets.map(b => b.avg_rainfall_mm);
+            const opts = {
+                chart: {type: "line", height: 300, toolbar: {show: true}},
+                series: [
+                    {name: "Avg Water Level (cm)", type: "area", data: waterLevels},
+                    {name: "Avg Rainfall (mm)", type: "column", data: rainfall},
+                ],
+                xaxis: {categories},
+                yaxis: [
+                    {title: {text: "Water Level (cm)"}},
+                    {opposite: true, title: {text: "Rainfall (mm)"}},
+                ],
+                colors: ["#0ea5e9", "#6366f1"],
+                stroke: {curve: "smooth", width: [2, 0]},
+                dataLabels: {enabled: false},
+            };
+            if (waterLevelChart) waterLevelChart.updateOptions(opts);
+            else { waterLevelChart = new ApexCharts(document.querySelector("#chart-water-level-trend"), opts); waterLevelChart.render(); }
+        }).catch(() => console.warn("Could not load water level trend"));
+    }
+
+    // ── Alerts trend (stacked bar, last 30 days) ───────────────────────────
+    function loadAlertsTrend() {
+        fetch("/api/dashboard/stats/alerts-trend/?days=30").then(r => r.json()).then(data => {
+            const opts = {
+                chart: {type: "bar", height: 260, stacked: true, toolbar: {show: false}},
+                series: [
+                    {name: "Watch", data: data.series.yellow},
+                    {name: "Warning", data: data.series.orange},
+                    {name: "Emergency", data: data.series.red},
+                ],
+                xaxis: {categories: data.days, labels: {show: false}},
+                colors: [RISK_COLORS.yellow, RISK_COLORS.orange, RISK_COLORS.red],
+                plotOptions: {bar: {horizontal: false, columnWidth: "70%"}},
+                legend: {position: "bottom"},
+            };
+            if (alertsTrendChart) alertsTrendChart.updateOptions(opts);
+            else { alertsTrendChart = new ApexCharts(document.querySelector("#chart-alerts-trend"), opts); alertsTrendChart.render(); }
+        }).catch(() => console.warn("Could not load alerts trend"));
+    }
+
+    // ── Most affected zones (horizontal bar) ───────────────────────────────
+    function loadEventsByZone() {
+        fetch("/api/dashboard/stats/flood-events-by-zone/").then(r => r.json()).then(data => {
+            const opts = {
+                chart: {type: "bar", height: 260, toolbar: {show: false}},
+                series: [{name: "Flood events", data: data.event_counts}],
+                xaxis: {categories: data.zones},
+                colors: ["#0ea5e9"],
+                plotOptions: {bar: {horizontal: true, borderRadius: 4}},
+                dataLabels: {enabled: true},
+            };
+            if (eventsByZoneChart) eventsByZoneChart.updateOptions(opts);
+            else { eventsByZoneChart = new ApexCharts(document.querySelector("#chart-events-by-zone"), opts); eventsByZoneChart.render(); }
+        }).catch(() => console.warn("Could not load events-by-zone stats"));
+    }
+
+    // Initial load
+    loadOverview();
+    loadWaterLevelTrend(24);
+    loadAlertsTrend();
+    loadEventsByZone();
+
+    document.getElementById("water-level-range").addEventListener("change", e => {
+        loadWaterLevelTrend(e.target.value);
+    });
+
+    // Refresh KPI + donut charts every 60s, and on every live WebSocket
+    // sensor reading / alert event (see static/js/floodwatch-realtime.js).
+    setInterval(loadOverview, 60000);
+    document.addEventListener("floodwatch:sensor-reading", () => loadOverview());
+    document.addEventListener("floodwatch:alert", () => { loadOverview(); loadAlertsTrend(); });
+});
+</script>
+{% endblock %}

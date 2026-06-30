@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Historical Trends — FloodWatch Ghana{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12">
+          <h4 class="fw-bold mb-1">Historical Flood Trend Analysis</h4>
+          <p class="text-muted mb-0">Digitised historical flood records for Accra</p>
+     </div>
+</div>
+
+<div class="card">
+     <div class="card-header"><h5 class="card-title mb-0">Casualties &amp; Displacement Over Time</h5></div>
+     <div class="card-body"><div id="historical-chart" style="height: 320px;"></div></div>
+</div>
+
+<div class="card mt-3">
+     <div class="card-body p-0">
+          <div class="table-responsive">
+               <table class="table table-hover mb-0">
+                    <thead><tr><th>Date</th><th>Zone</th><th>Severity</th><th>Rainfall</th><th>Affected Area</th><th>Casualties</th><th>Displaced</th></tr></thead>
+                    <tbody>
+                         {% for r in historical_records %}
+                         <tr>
+                              <td>{{ r.event_date }}</td>
+                              <td>{{ r.flood_zone.name|default:"Accra-wide" }}</td>
+                              <td><span class="badge bg-{% if r.severity == 'red' %}danger{% elif r.severity == 'orange' %}warning{% else %}info{% endif %}">{{ r.get_severity_display }}</span></td>
+                              <td>{{ r.rainfall_mm|default:"—" }} mm</td>
+                              <td>{{ r.affected_area_ha|default:"—" }} ha</td>
+                              <td>{{ r.casualties }}</td>
+                              <td>{{ r.displaced_persons }}</td>
+                         </tr>
+                         {% empty %}
+                         <tr><td colspan="7" class="text-muted text-center py-3">No historical records loaded yet</td></tr>
+                         {% endfor %}
+                    </tbody>
+               </table>
+          </div>
+     </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const records = [
+        {% for r in historical_records %}
+        {date: "{{ r.event_date|date:'Y-m-d' }}", casualties: {{ r.casualties }}, displaced: {{ r.displaced_persons }}},
+        {% endfor %}
+    ].reverse();
+    new ApexCharts(document.querySelector("#historical-chart"), {
+        chart: {type: "line", height: 320, toolbar: {show: true}},
+        series: [
+            {name: "Casualties", data: records.map(r => r.casualties)},
+            {name: "Displaced Persons", data: records.map(r => r.displaced)},
+        ],
+        xaxis: {categories: records.map(r => r.date)},
+        colors: ["#ef4444", "#f97316"],
+        stroke: {curve: "smooth", width: 2},
+    }).render();
+});
+</script>
+{% endblock %}

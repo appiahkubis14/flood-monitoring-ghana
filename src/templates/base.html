@@ -1,0 +1,206 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+     <meta charset="utf-8" />
+     <title>{% block title %}FloodWatch Ghana{% endblock %}</title>
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <meta name="description" content="Real-time hybrid flood monitoring for Accra, Ghana" />
+     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+     <link rel="shortcut icon" href="{% static 'vendor/larkon/images/favicon.ico' %}">
+
+     <link href="{% static 'vendor/larkon/css/vendor.min.css' %}" rel="stylesheet" type="text/css" />
+     <link href="{% static 'vendor/larkon/css/icons.min.css' %}" rel="stylesheet" type="text/css" />
+     <link href="{% static 'vendor/larkon/css/app.min.css' %}" rel="stylesheet" type="text/css" />
+     <link href="{% static 'css/floodwatch.css' %}" rel="stylesheet" type="text/css" />
+
+     <script src="{% static 'vendor/larkon/js/config.js' %}"></script>
+     {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+     {% if flood_status.overall_severity != 'green' %}
+     <div class="fw-status-banner fw-status-{{ flood_status.overall_severity }}">
+          <iconify-icon icon="solar:danger-triangle-bold"></iconify-icon>
+          <strong>{{ flood_status.overall_severity_label }}</strong>
+          — {{ flood_status.active_event_count }} active flood event{{ flood_status.active_event_count|pluralize }}
+          in {{ flood_status.active_zones|join:", " }}
+     </div>
+     {% endif %}
+
+     <div class="wrapper">
+
+          <header class="topbar">
+               <div class="container-fluid">
+                    <div class="navbar-header">
+                         <div class="d-flex align-items-center">
+                              <div class="topbar-item">
+                                   <button type="button" class="button-toggle-menu me-2">
+                                        <iconify-icon icon="solar:hamburger-menu-broken" class="fs-24 align-middle"></iconify-icon>
+                                   </button>
+                              </div>
+                              <div class="topbar-item">
+                                   <h4 class="fw-bold topbar-button pe-none text-uppercase mb-0">FloodWatch Ghana</h4>
+                              </div>
+                         </div>
+
+                         <div class="d-flex align-items-center gap-1">
+                              <div class="topbar-item">
+                                   <button type="button" class="topbar-button" id="light-dark-mode">
+                                        <iconify-icon icon="solar:moon-bold-duotone" class="fs-24 align-middle"></iconify-icon>
+                                   </button>
+                              </div>
+
+                              <div class="dropdown topbar-item">
+                                   <button type="button" class="topbar-button position-relative" id="alerts-bell"
+                                           data-bs-toggle="dropdown" aria-expanded="false">
+                                        <iconify-icon icon="solar:bell-bing-bold-duotone" class="fs-24 align-middle"></iconify-icon>
+                                        <span class="position-absolute topbar-badge fs-10 translate-middle badge bg-danger rounded-pill"
+                                              id="live-alert-count">0</span>
+                                   </button>
+                                   <div class="dropdown-menu py-0 dropdown-lg dropdown-menu-end" id="live-alert-dropdown">
+                                        <div class="p-3 border-bottom"><h6 class="m-0 fs-16 fw-semibold">Live Alerts</h6></div>
+                                        <div data-simplebar style="max-height: 320px;" id="live-alert-list">
+                                             <div class="p-3 text-muted text-center">No active alerts</div>
+                                        </div>
+                                   </div>
+                              </div>
+
+                              {% if user.is_authenticated %}
+                              <div class="dropdown topbar-item">
+                                   <button type="button" class="topbar-button" data-bs-toggle="dropdown">
+                                        <span class="d-flex align-items-center gap-2">
+                                             <iconify-icon icon="solar:user-circle-bold-duotone" class="fs-24"></iconify-icon>
+                                             <span class="d-none d-md-inline">{{ user.get_full_name|default:user.username }}</span>
+                                        </span>
+                                   </button>
+                                   <div class="dropdown-menu dropdown-menu-end">
+                                        <a class="dropdown-item" href="{% url 'admin:index' %}">
+                                             <iconify-icon icon="solar:settings-bold-duotone" class="me-1"></iconify-icon> Admin Panel
+                                        </a>
+                                        <div class="dropdown-divider"></div>
+                                        <form method="post" action="{% url 'logout' %}" class="px-3">
+                                             {% csrf_token %}
+                                             <button type="submit" class="dropdown-item ps-0">
+                                                  <iconify-icon icon="solar:logout-2-bold-duotone" class="me-1"></iconify-icon> Sign Out
+                                             </button>
+                                        </form>
+                                   </div>
+                              </div>
+                              {% else %}
+                              <a href="{% url 'login' %}" class="btn btn-sm btn-primary">Sign In</a>
+                              {% endif %}
+                         </div>
+                    </div>
+               </div>
+          </header>
+
+          <div class="main-nav">
+               <div class="logo-box">
+                    <a href="{% url 'dashboard:index' %}" class="logo-dark d-flex align-items-center gap-2 px-3">
+                         <iconify-icon icon="solar:waterdrops-bold-duotone" class="fs-28 text-primary"></iconify-icon>
+                         <span class="fw-bold fs-18">FloodWatch</span>
+                    </a>
+               </div>
+
+               <button type="button" class="button-sm-hover" aria-label="Show Full Sidebar">
+                    <iconify-icon icon="solar:double-alt-arrow-right-bold-duotone" class="button-sm-hover-icon"></iconify-icon>
+               </button>
+
+               <div class="scrollbar" data-simplebar>
+                    <ul class="navbar-nav" id="navbar-nav">
+                         <li class="menu-title">Monitoring</li>
+
+                         <li class="nav-item">
+                              <a class="nav-link {% if active_nav == 'dashboard' %}active{% endif %}" href="{% url 'dashboard:index' %}">
+                                   <iconify-icon icon="solar:home-2-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Dashboard</span>
+                              </a>
+                         </li>
+                         <li class="nav-item">
+                              <a class="nav-link {% if active_nav == 'map' %}active{% endif %}" href="{% url 'dashboard:map' %}">
+                                   <iconify-icon icon="solar:map-point-wave-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Live Map</span>
+                              </a>
+                         </li>
+                         <li class="nav-item">
+                              <a class="nav-link {% if active_nav == 'sensors' %}active{% endif %}" href="{% url 'dashboard:sensors' %}">
+                                   <iconify-icon icon="solar:cpu-bolt-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Sensor Stations</span>
+                              </a>
+                         </li>
+                         <li class="nav-item">
+                              <a class="nav-link {% if active_nav == 'flood_maps' %}active{% endif %}" href="{% url 'dashboard:flood_maps' %}">
+                                   <iconify-icon icon="solar:satellite-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Satellite Flood Maps</span>
+                              </a>
+                         </li>
+
+                         <li class="menu-title">Response</li>
+
+                         <li class="nav-item">
+                              <a class="nav-link {% if active_nav == 'alerts' %}active{% endif %}" href="{% url 'dashboard:alerts' %}">
+                                   <iconify-icon icon="solar:siren-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Alerts</span>
+                              </a>
+                         </li>
+                         <li class="nav-item">
+                              <a class="nav-link {% if active_nav == 'reports' %}active{% endif %}" href="{% url 'dashboard:reports' %}">
+                                   <iconify-icon icon="solar:document-text-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Community Reports</span>
+                              </a>
+                         </li>
+
+                         {% if user.is_staff %}
+                         <li class="menu-title">Administration</li>
+                         <li class="nav-item">
+                              <a class="nav-link {% if active_nav == 'settings' %}active{% endif %}" href="{% url 'dashboard:settings' %}">
+                                   <iconify-icon icon="solar:settings-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Thresholds &amp; Settings</span>
+                              </a>
+                         </li>
+                         <li class="nav-item">
+                              <a class="nav-link" href="{% url 'admin:index' %}">
+                                   <iconify-icon icon="solar:shield-keyhole-bold-duotone" class="nav-icon"></iconify-icon>
+                                   <span class="nav-text">Django Admin</span>
+                              </a>
+                         </li>
+                         {% endif %}
+                    </ul>
+               </div>
+          </div>
+
+          <div class="page-content">
+               <div class="container-fluid">
+                    {% if messages %}
+                         {% for message in messages %}
+                         <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible" role="alert">
+                              {{ message }}
+                              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                         </div>
+                         {% endfor %}
+                    {% endif %}
+
+                    {% block content %}{% endblock %}
+               </div>
+
+               <footer class="footer">
+                    <div class="container-fluid">
+                         <div class="row">
+                              <div class="col-12 text-center">
+                                   FloodWatch Ghana — Odaw River Basin &amp; Korle Lagoon Monitoring
+                              </div>
+                         </div>
+                    </div>
+               </footer>
+          </div>
+
+     </div>
+
+     <script src="{% static 'vendor/larkon/js/vendor.js' %}"></script>
+     <script src="{% static 'vendor/larkon/js/app.js' %}"></script>
+     <script src="{% static 'js/floodwatch-realtime.js' %}"></script>
+     {% block extra_scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Live Map — FloodWatch Ghana{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+    .fw-map-shell { position: relative; height: 80vh; min-height: 560px; }
+    .fw-map-canvas { height: 100%; width: 100%; border-radius: 0.5rem; }
+    .fw-map-sidebar {
+        position: absolute; top: 12px; right: 12px; bottom: 12px; width: 320px;
+        background: rgba(255,255,255,0.97); border-radius: 0.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+        overflow-y: auto; z-index: 900; padding: 1rem;
+    }
+    [data-bs-theme="dark"] .fw-map-sidebar { background: rgba(30,33,40,0.97); color: #e9ecef; }
+    .fw-risk-bar { height: 8px; border-radius: 4px; background: #e5e7eb; overflow: hidden; }
+    .fw-risk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+    .fw-legend-swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; margin-right: 6px; vertical-align: middle; }
+    .fw-popup-stat { display: flex; justify-content: space-between; font-size: 12.5px; padding: 2px 0; }
+    .fw-popup-stat span:first-child { color: #6b7280; }
+    .fw-trend-rising { color: #ef4444; }
+    .fw-trend-falling { color: #22c55e; }
+    .fw-trend-steady { color: #6b7280; }
+    .leaflet-popup-content { margin: 10px 14px; min-width: 220px; }
+    .fw-zone-risk-row { cursor: pointer; padding: 6px 8px; border-radius: 6px; }
+    .fw-zone-risk-row:hover { background: rgba(14,165,233,0.08); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+               <h4 class="fw-bold mb-1">Live Map</h4>
+               <p class="text-muted mb-0">Sensors, flood risk zones, satellite extent, and live risk-intensity heatmap</p>
+          </div>
+          <div class="d-flex gap-3 flex-wrap fs-13">
+               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-heatmap" checked> <iconify-icon icon="solar:fire-bold-duotone" class="text-danger"></iconify-icon> Risk Heatmap</label>
+               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-sensors" checked> <iconify-icon icon="solar:cpu-bolt-bold-duotone" class="text-primary"></iconify-icon> Sensors</label>
+               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-zones" checked> <iconify-icon icon="solar:map-point-wave-bold-duotone" class="text-warning"></iconify-icon> Flood Zones</label>
+               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-floodmaps" checked> <iconify-icon icon="solar:satellite-bold-duotone" class="text-info"></iconify-icon> Flood Extent</label>
+               <label class="d-flex align-items-center gap-1"><input type="checkbox" id="layer-reports" checked> <iconify-icon icon="solar:document-text-bold-duotone" class="text-secondary"></iconify-icon> Community Reports</label>
+          </div>
+     </div>
+</div>
+
+<div class="card">
+     <div class="card-body p-0">
+          <div class="fw-map-shell">
+               <div id="full-map" class="fw-map-canvas"></div>
+
+               <div class="fw-map-sidebar" id="map-sidebar">
+                    <h6 class="fw-bold mb-2">Zone Risk Ranking</h6>
+                    <p class="fs-12 text-muted mb-2">Composite score: sensor proximity to threshold + active events + recent severe reports</p>
+                    <div id="zone-risk-list" class="mb-3">
+                         <div class="text-center text-muted py-3 fs-13">Loading...</div>
+                    </div>
+
+                    <hr>
+
+                    <h6 class="fw-bold mb-2">Legend</h6>
+                    <div class="fs-12 mb-1"><span class="fw-legend-swatch" style="background:#22c55e"></span>Safe</div>
+                    <div class="fs-12 mb-1"><span class="fw-legend-swatch" style="background:#eab308"></span>Watch</div>
+                    <div class="fs-12 mb-1"><span class="fw-legend-swatch" style="background:#f97316"></span>Warning</div>
+                    <div class="fs-12 mb-3"><span class="fw-legend-swatch" style="background:#ef4444"></span>Emergency</div>
+                    <div class="fs-12 text-muted mb-1">Heatmap intensity = current water level ÷ zone threshold (capped at 2×)</div>
+
+                    <hr>
+
+                    <div id="selected-detail">
+                         <p class="fs-12 text-muted text-center py-3">Click a sensor or zone on the map for detailed statistics</p>
+                    </div>
+               </div>
+          </div>
+     </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const RISK_COLORS = {green: "#22c55e", yellow: "#eab308", orange: "#f97316", red: "#ef4444"};
+const STATUS_COLORS = {online: "#22c55e", offline: "#ef4444", maintenance: "#f59e0b", faulty: "#6b7280"};
+
+document.addEventListener("DOMContentLoaded", function () {
+    const map = L.map("full-map", {zoomControl: true}).setView([{{ accra_center.lat }}, {{ accra_center.lon }}], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors", maxZoom: 18,
+    }).addTo(map);
+    L.control.scale({position: "bottomleft"}).addTo(map);
+
+    const layers = {
+        sensors: L.markerClusterGroup({maxClusterRadius: 40}).addTo(map),
+        zones: L.layerGroup().addTo(map),
+        floodmaps: L.layerGroup().addTo(map),
+        reports: L.markerClusterGroup({maxClusterRadius: 35}).addTo(map),
+    };
+    let heatLayer = null;
+
+    function toggleLayer(checkboxId, layerKey) {
+        document.getElementById(checkboxId).addEventListener("change", e => {
+            if (e.target.checked) map.addLayer(layers[layerKey]); else map.removeLayer(layers[layerKey]);
+        });
+    }
+    toggleLayer("layer-sensors", "sensors");
+    toggleLayer("layer-zones", "zones");
+    toggleLayer("layer-floodmaps", "floodmaps");
+    toggleLayer("layer-reports", "reports");
+    document.getElementById("layer-heatmap").addEventListener("change", e => {
+        if (!heatLayer) return;
+        if (e.target.checked) map.addLayer(heatLayer); else map.removeLayer(heatLayer);
+    });
+
+    // ── Risk-intensity heatmap (Leaflet.heat) ──────────────────────────────
+    function loadHeatmap() {
+        fetch("/api/dashboard/stats/map-heatmap/").then(r => r.json()).then(data => {
+            const points = data.points.map(p => [p.lat, p.lon, p.intensity]);
+            if (heatLayer) map.removeLayer(heatLayer);
+            heatLayer = L.heatLayer(points, {
+                radius: 45, blur: 35, max: data.max_intensity,
+                gradient: {0.0: "#22c55e", 0.4: "#eab308", 0.7: "#f97316", 1.0: "#ef4444"},
+            });
+            if (document.getElementById("layer-heatmap").checked) heatLayer.addTo(map);
+        }).catch(() => console.warn("Could not load heatmap data"));
+    }
+
+    // ── Sensor stations with rich popups (fetch detail stats on click) ────
+    function loadSensors() {
+        layers.sensors.clearLayers();
+        fetch("/api/sensors/").then(r => r.json()).then(data => {
+            (data.features || data.results || []).forEach(f => {
+                const [lon, lat] = f.geometry.coordinates;
+                const color = STATUS_COLORS[f.properties.status] || "#888";
+                const marker = L.circleMarker([lat, lon], {
+                    radius: 10, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.9,
+                });
+                marker.bindPopup(`<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div><br><span class="fs-12">Loading station data...</span></div>`);
+                marker.on("popupopen", () => loadStationPopup(f.id, marker));
+                marker.on("click", () => showStationSidebar(f.id));
+                layers.sensors.addLayer(marker);
+            });
+        }).catch(() => console.warn("Could not load sensor stations"));
+    }
+
+    function loadStationPopup(stationId, marker) {
+        fetch(`/api/dashboard/stats/station/${stationId}/detail/`).then(r => r.json()).then(data => {
+            marker.setPopupContent(renderStationPopupHtml(data));
+        }).catch(() => marker.setPopupContent("<p class='text-danger fs-13'>Could not load station data</p>"));
+    }
+
+    function renderStationPopupHtml(data) {
+        const s = data.station, c = data.current, h = data.last_24h;
+        const statusBadge = `<span class="badge" style="background:${STATUS_COLORS[s.status]}">${s.status}</span>`;
+        const trendIcon = {rising: "↑", falling: "↓", steady: "→"}[data.trend];
+        const trendClass = `fw-trend-${data.trend}`;
+        const riskPct = data.risk_ratio ? Math.min(data.risk_ratio * 50, 100) : 0;
+        const riskColor = !data.risk_ratio ? "#888" : data.risk_ratio >= 1 ? "#ef4444" : data.risk_ratio >= 0.7 ? "#f97316" : "#22c55e";
+        return `
+            <div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <strong>${s.name}</strong> ${statusBadge}
+                </div>
+                <div class="fs-12 text-muted mb-2">${s.community || "—"} ${s.zone_name ? "· " + s.zone_name : ""}</div>
+                <div class="fw-popup-stat"><span>Current water level</span><strong>${c.water_level_cm ?? "—"} cm</strong></div>
+                <div class="fw-popup-stat"><span>Trend (vs 24h avg)</span><strong class="${trendClass}">${trendIcon} ${data.trend}</strong></div>
+                <div class="fw-popup-stat"><span>Rainfall (latest)</span><span>${c.rainfall_mm ?? "—"} mm</span></div>
+                <div class="fw-popup-stat"><span>24h avg / max / min</span><span>${h.avg_water_level_cm} / ${h.max_water_level_cm} / ${h.min_water_level_cm} cm</span></div>
+                <div class="fw-popup-stat"><span>24h total rainfall</span><span>${h.total_rainfall_mm} mm</span></div>
+                <div class="fw-popup-stat"><span>Battery</span><span>${s.battery_level}%</span></div>
+                ${data.risk_ratio !== null ? `
+                <div class="mt-2">
+                    <div class="fs-11 text-muted mb-1">Risk ratio: ${data.risk_ratio}× threshold</div>
+                    <div class="fw-risk-bar"><div class="fw-risk-bar-fill" style="width:${riskPct}%;background:${riskColor}"></div></div>
+                </div>` : ""}
+                <div class="fs-11 text-muted mt-2">Last reading: ${s.last_reading_at ? new Date(s.last_reading_at).toLocaleString() : "never"}</div>
+            </div>`;
+    }
+
+    // ── Sidebar detail panel on station click ──────────────────────────────
+    function showStationSidebar(stationId) {
+        fetch(`/api/dashboard/stats/station/${stationId}/detail/`).then(r => r.json()).then(data => {
+            document.getElementById("selected-detail").innerHTML = `
+                <h6 class="fw-bold mb-2">${data.station.name}</h6>
+                ${renderStationPopupHtml(data)}
+                <a href="/dashboard/sensors/" class="btn btn-sm btn-outline-primary w-100 mt-2">View all sensors</a>`;
+        });
+    }
+
+    // ── Flood zones styled by composite risk score (not just static field) ─
+    function loadZones() {
+        layers.zones.clearLayers();
+        Promise.all([
+            fetch("/api/flood-zones/").then(r => r.json()),
+            fetch("/api/dashboard/stats/zone-risk-scores/").then(r => r.json()),
+        ]).then(([zoneData, riskData]) => {
+            const riskByName = {};
+            riskData.zones.forEach(z => { riskByName[z.zone_name] = z; });
+
+            (zoneData.features || zoneData.results || []).forEach(f => {
+                const risk = riskByName[f.properties.name];
+                const color = RISK_COLORS[f.properties.current_risk_level] || "#888";
+                const geoLayer = L.geoJSON(f, {
+                    style: {color, weight: 2, fillOpacity: risk ? 0.10 + (risk.risk_score / 100) * 0.35 : 0.15},
+                });
+                geoLayer.bindPopup(`
+                    <strong>${f.properties.name}</strong><br>
+                    <span class="fs-12">Risk level: <b>${f.properties.current_risk_level}</b></span><br>
+                    <span class="fs-12">Composite score: <b>${risk ? risk.risk_score : "—"}/100</b></span><br>
+                    <span class="fs-12">Stations: ${f.properties.station_count}</span>
+                `);
+                geoLayer.on("click", () => showZoneSidebar(f.id, f.properties.name));
+                layers.zones.addLayer(geoLayer);
+            });
+
+            renderZoneRiskList(riskData.zones);
+        }).catch(() => console.warn("Could not load flood zones"));
+    }
+
+    function renderZoneRiskList(zones) {
+        const container = document.getElementById("zone-risk-list");
+        if (!zones.length) { container.innerHTML = '<p class="fs-12 text-muted">No zones configured</p>'; return; }
+        container.innerHTML = zones.map(z => {
+            const color = z.risk_score >= 70 ? "#ef4444" : z.risk_score >= 40 ? "#f97316" : z.risk_score >= 15 ? "#eab308" : "#22c55e";
+            return `
+                <div class="fw-zone-risk-row mb-2" data-zone-id="${z.zone_id}">
+                    <div class="d-flex justify-content-between fs-12">
+                        <span>${z.zone_name}</span><strong>${z.risk_score}</strong>
+                    </div>
+                    <div class="fw-risk-bar"><div class="fw-risk-bar-fill" style="width:${z.risk_score}%;background:${color}"></div></div>
+                </div>`;
+        }).join("");
+        container.querySelectorAll(".fw-zone-risk-row").forEach(row => {
+            row.addEventListener("click", () => showZoneSidebar(row.dataset.zoneId));
+        });
+    }
+
+    function showZoneSidebar(zoneId, zoneName) {
+        fetch(`/api/flood-zones/${zoneId}/risk/`).then(r => r.json()).then(data => {
+            document.getElementById("selected-detail").innerHTML = `
+                <h6 class="fw-bold mb-2">${data.name}</h6>
+                <div class="fw-popup-stat"><span>Risk level</span><strong>${data.current_risk_level}</strong></div>
+                <div class="fw-popup-stat"><span>Active event severity</span><strong>${data.active_event_severity || "none"}</strong></div>
+                <div class="fw-popup-stat"><span>Last assessed</span><span>${data.last_assessed_at ? new Date(data.last_assessed_at).toLocaleString() : "—"}</span></div>
+                <a href="/dashboard/alerts/" class="btn btn-sm btn-outline-primary w-100 mt-2">View flood events</a>`;
+        });
+    }
+
+    // ── Satellite flood extent ───────────────────────────────────────────
+    function loadFloodMaps() {
+        layers.floodmaps.clearLayers();
+        fetch("/api/flood-maps/?ordering=-created_at").then(r => r.json()).then(data => {
+            const results = data.features || data.results || [];
+            results.slice(0, 10).forEach(f => {
+                if (!f.geometry) return;
+                const confirmed = f.properties.confirmed_by_sensors;
+                L.geoJSON(f, {style: {color: confirmed ? "#dc2626" : "#0ea5e9", weight: 1, fillOpacity: 0.35}})
+                  .bindPopup(`
+                      <strong>${confirmed ? "⚠ IoT-Confirmed Flood" : "Satellite Detection"}</strong><br>
+                      <span class="fs-12">Area: ${f.properties.flooded_area_ha} ha</span><br>
+                      <span class="fs-12">Confidence: ${(f.properties.confidence*100).toFixed(0)}%</span><br>
+                      <span class="fs-12">Method: ${f.properties.detection_method}</span>
+                  `).addTo(layers.floodmaps);
+            });
+        }).catch(() => console.warn("Could not load flood maps"));
+    }
+
+    // ── Community reports (clustered) ───────────────────────────────────────
+    function loadReports() {
+        layers.reports.clearLayers();
+        fetch("/api/community-reports/").then(r => r.json()).then(data => {
+            (data.features || data.results || []).forEach(f => {
+                if (!f.geometry) return;
+                const [lon, lat] = f.geometry.coordinates;
+                const color = f.properties.severity === "severe" ? "#ef4444" : f.properties.severity === "moderate" ? "#f59e0b" : "#0ea5e9";
+                const marker = L.circleMarker([lat, lon], {radius: 7, color: "#fff", weight: 1.5, fillColor: color, fillOpacity: 0.9});
+                marker.bindPopup(`
+                    <strong>Community Report</strong> ${f.properties.is_verified ? '<span class="badge bg-success">Verified</span>' : '<span class="badge bg-secondary">Unverified</span>'}<br>
+                    <span class="fs-12">Severity: <b>${f.properties.severity}</b></span><br>
+                    <span class="fs-12">${f.properties.description || "No description"}</span>
+                `);
+                layers.reports.addLayer(marker);
+            });
+        }).catch(() => console.warn("Could not load community reports"));
+    }
+
+    // ── Initial load + periodic refresh ────────────────────────────────────
+    loadHeatmap(); loadSensors(); loadZones(); loadFloodMaps(); loadReports();
+
+    setInterval(() => { loadHeatmap(); }, 60000);
+    document.addEventListener("floodwatch:sensor-reading", () => loadHeatmap());
+    document.addEventListener("floodwatch:alert", () => { loadZones(); });
+});
+</script>
+{% endblock %}

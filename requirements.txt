@@ -1,0 +1,85 @@
+# ── Django core ────────────────────────────────────────────────────────────────
+Django==4.2.18
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+djangorestframework-gis==1.1
+django-cors-headers==4.4.0
+django-filter==24.3
+drf-spectacular==0.27.2
+
+# ── Channels (WebSockets) ──────────────────────────────────────────────────────
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.2
+
+# ── Database ───────────────────────────────────────────────────────────────────
+psycopg2-binary==2.9.9
+
+# ── Celery / Redis ─────────────────────────────────────────────────────────────
+celery==5.4.0
+django-celery-results==2.5.1
+django-celery-beat==2.7.0
+redis==5.0.8
+django-redis==5.4.0
+
+# ── Geospatial ─────────────────────────────────────────────────────────────────
+# GeoDjango uses the system GDAL/GEOS/PROJ libraries directly (no extra
+# Python package needed for the core gis app), but these are required by
+# the PyGeoVision satellite pipeline and admin map widgets.
+shapely==2.0.6
+rasterio==1.3.11
+geopandas==0.14.4
+
+# ── PyGeoVision (satellite processing) ────────────────────────────────────────
+# Not on public PyPI under this name -- it's the custom geospatial AI
+# platform this project's satellite pipeline (apps.satellite.processors)
+# is built against. Install from your local wheel/source checkout:
+#   pip install -e /path/to/pygeovision
+# or build/copy the wheel into this project and:
+#   pip install ./pygeovision-2.0.8-py3-none-any.whl
+# apps.satellite.processors imports it lazily (inside SatelliteProcessor.__init__,
+# not at module level) specifically so the rest of the Django project --
+# including running the full test suite -- works even before this is installed.
+# pygeovision==2.0.8
+
+# ── Scientific / data stack ────────────────────────────────────────────────────
+# numpy is a direct, required dependency of apps.satellite.indices and
+# .processors (MNDWI computation, area calculations). pandas/matplotlib/
+# seaborn/scikit-learn are not yet imported by this codebase but are kept
+# pinned here as listed project dependencies for the historical trend
+# analysis / predictive flood-risk modelling work that builds on
+# apps.alerts.models.HistoricalFloodRecord.
+numpy==1.26.4
+pandas==2.2.2
+matplotlib==3.9.0
+seaborn==0.13.2
+scikit-learn==1.5.0
+
+# ── Mapping (server-side; client-side map rendering uses Leaflet.js via CDN,
+#    see templates/base.html and dashboard/map.html -- there is no
+#    corresponding PyPI package for that, it's loaded directly in the browser) ─
+folium==0.17.0
+
+# ── IoT / MQTT ─────────────────────────────────────────────────────────────────
+paho-mqtt==2.1.0
+
+# ── Alerts ─────────────────────────────────────────────────────────────────────
+twilio==9.3.2
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+django-extensions==3.2.3
+
+# ── Production server ──────────────────────────────────────────────────────────
+gunicorn==23.0.0
+
+# ── Optional S3 storage ────────────────────────────────────────────────────────
+django-storages[s3]==1.14.4
+
+# ── Dev tools (development.py only) ───────────────────────────────────────────
+django-debug-toolbar==4.4.6
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+pytest==8.3.3
+pytest-django==4.9.0
+factory-boy==3.3.1

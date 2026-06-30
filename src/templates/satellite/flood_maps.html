@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Satellite Flood Maps — FloodWatch Ghana{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12 d-flex justify-content-between align-items-center">
+          <div>
+               <h4 class="fw-bold mb-1">Satellite-Derived Flood Maps</h4>
+               <p class="text-muted mb-0">MNDWI-threshold flood detection from Sentinel-1/2 (PyGeoVision pipeline)</p>
+          </div>
+          <a href="{% url 'dashboard:timeseries' %}" class="btn btn-sm btn-outline-primary">View Historical Trends</a>
+     </div>
+</div>
+
+<div class="row">
+     {% for fm in flood_maps %}
+     <div class="col-xl-4 col-md-6">
+          <div class="card">
+               <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2">
+                         <span class="badge bg-{% if fm.confirmed_by_sensors %}danger{% else %}warning{% endif %}">
+                              {% if fm.confirmed_by_sensors %}IoT Confirmed{% else %}Satellite Only{% endif %}
+                         </span>
+                         <span class="fs-12 text-muted">{{ fm.created_at|date:"M d, Y H:i" }}</span>
+                    </div>
+                    <h5 class="card-title">{{ fm.flood_zone.name|default:"Accra-wide" }}</h5>
+                    <table class="table table-sm table-borderless mb-0">
+                         <tr><td class="text-muted">Flooded area</td><td class="text-end fw-semibold">{{ fm.flooded_area_ha }} ha</td></tr>
+                         <tr><td class="text-muted">Confidence</td><td class="text-end">{{ fm.confidence|floatformat:0 }}%</td></tr>
+                         <tr><td class="text-muted">Method</td><td class="text-end fs-12">{{ fm.detection_method }}</td></tr>
+                         <tr><td class="text-muted">Source scene</td><td class="text-end fs-12">{{ fm.source_scene.scene_id|default:"—"|truncatechars:20 }}</td></tr>
+                    </table>
+               </div>
+          </div>
+     </div>
+     {% empty %}
+     <div class="col-12"><p class="text-muted text-center py-5">No flood maps generated yet — the satellite pipeline runs every 24h, or trigger it manually from Settings.</p></div>
+     {% endfor %}
+</div>
+{% endblock %}

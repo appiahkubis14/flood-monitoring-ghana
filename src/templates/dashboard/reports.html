@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Community Reports — FloodWatch Ghana{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+     <div class="col-12 d-flex justify-content-between align-items-center">
+          <div>
+               <h4 class="fw-bold mb-1">Community Flood Reports</h4>
+               <p class="text-muted mb-0">Crowdsourced reports from residents</p>
+          </div>
+          <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#reportModal">
+               <iconify-icon icon="solar:add-circle-bold-duotone"></iconify-icon> Submit a Report
+          </button>
+     </div>
+</div>
+
+<div class="row mb-3">
+     <div class="col-xl-4">
+          <div class="card">
+               <div class="card-header"><h5 class="card-title mb-0">Reports by Severity</h5></div>
+               <div class="card-body"><div id="chart-report-severity" style="height: 220px;"></div></div>
+          </div>
+     </div>
+     <div class="col-xl-8">
+          <div class="card">
+               <div class="card-body d-flex align-items-center justify-content-around flex-wrap gap-3 h-100">
+                    <div class="text-center">
+                         <h3 class="mb-0">{{ reports.count }}</h3>
+                         <p class="text-muted mb-0">Total Reports</p>
+                    </div>
+                    <div class="text-center">
+                         <h3 class="mb-0 text-success">{{ verified_count }}</h3>
+                         <p class="text-muted mb-0">Verified</p>
+                    </div>
+                    <div class="text-center">
+                         <h3 class="mb-0 text-warning">{{ unverified_count }}</h3>
+                         <p class="text-muted mb-0">Awaiting Verification</p>
+                    </div>
+               </div>
+          </div>
+     </div>
+</div>
+
+<div class="row">
+     {% for report in reports %}
+     <div class="col-xl-4 col-md-6">
+          <div class="card">
+               <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2">
+                         <span class="badge bg-{% if report.severity == 'severe' %}danger{% elif report.severity == 'moderate' %}warning{% else %}info{% endif %}">
+                              {{ report.get_severity_display }}
+                         </span>
+                         {% if report.is_verified %}
+                         <span class="badge bg-success"><iconify-icon icon="solar:check-circle-bold"></iconify-icon> Verified</span>
+                         {% else %}
+                         <span class="badge bg-secondary">Unverified</span>
+                         {% endif %}
+                    </div>
+                    <p class="mb-2">{{ report.description|default:"No description provided"|truncatewords:25 }}</p>
+                    <p class="text-muted fs-12 mb-2">
+                         {% if report.flood_zone %}{{ report.flood_zone.name }} · {% endif %}{{ report.created_at|timesince }} ago
+                    </p>
+                    {% if report.photo %}
+                    <img src="{{ report.photo.url }}" class="img-fluid rounded mb-2" alt="Report photo">
+                    {% endif %}
+                    {% if user.is_staff and not report.is_verified %}
+                    <button class="btn btn-sm btn-outline-success w-100 verify-btn" data-uuid="{{ report.uuid }}">
+                         Mark Verified
+                    </button>
+                    {% endif %}
+               </div>
+          </div>
+     </div>
+     {% empty %}
+     <div class="col-12"><p class="text-muted text-center py-5">No community reports submitted yet.</p></div>
+     {% endfor %}
+</div>
+
+<div class="modal fade" id="reportModal" tabindex="-1">
+     <div class="modal-dialog">
+          <div class="modal-content">
+               <div class="modal-header">
+                    <h5 class="modal-title">Submit Flood Report</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+               </div>
+               <div class="modal-body">
+                    <div class="mb-3">
+                         <label class="form-label">Your phone number (optional)</label>
+                         <input type="tel" class="form-control" id="report-phone" placeholder="+233...">
+                    </div>
+                    <div class="mb-3">
+                         <label class="form-label">Flood Zone</label>
+                         <select class="form-select" id="report-zone">
+                              <option value="">— Select nearest zone —</option>
+                              {% for zone in zones %}
+                              <option value="{{ zone.id }}">{{ zone.name }}</option>
+                              {% endfor %}
+                         </select>
+                    </div>
+                    <div class="mb-3">
+                         <label class="form-label">Severity</label>
+                         <select class="form-select" id="report-severity">
+                              <option value="minor">Minor — ankle deep</option>
+                              <option value="moderate" selected>Moderate — knee deep</option>
+                              <option value="severe">Severe — waist deep or higher</option>
+                         </select>
+                    </div>
+                    <div class="mb-3">
+                         <label class="form-label">Description</label>
+                         <textarea class="form-control" id="report-description" rows="3"></textarea>
+                    </div>
+                    <p class="text-muted fs-12">
+                         Location: <span id="report-location-status">Detecting your location...</span>
+                    </p>
+               </div>
+               <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="submit-report-btn">Submit</button>
+               </div>
+          </div>
+     </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let reportLat = 5.60, reportLon = -0.20;  // Accra fallback centre if geolocation denied
+if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            reportLat = pos.coords.latitude; reportLon = pos.coords.longitude;
+            document.getElementById("report-location-status").textContent =
+                `${reportLat.toFixed(4)}, ${reportLon.toFixed(4)}`;
+        },
+        () => { document.getElementById("report-location-status").textContent = "Using default Accra location"; }
+    );
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    fetch("/api/dashboard/stats/overview/").then(r => r.json()).then(data => {
+        const dist = data.report_severity_distribution;
+        new ApexCharts(document.querySelector("#chart-report-severity"), {
+            chart: {type: "donut", height: 220},
+            series: [dist.minor, dist.moderate, dist.severe],
+            labels: ["Minor", "Moderate", "Severe"],
+            colors: ["#0ea5e9", "#f59e0b", "#ef4444"],
+            legend: {position: "bottom"},
+            dataLabels: {enabled: true},
+        }).render();
+    }).catch(() => console.warn("Could not load report severity stats"));
+});
+
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(";").shift();
+}
+
+document.getElementById("submit-report-btn").addEventListener("click", function () {
+    const payload = {
+        reporter_phone: document.getElementById("report-phone").value,
+        flood_zone: document.getElementById("report-zone").value || null,
+        severity: document.getElementById("report-severity").value,
+        description: document.getElementById("report-description").value,
+        latitude: reportLat, longitude: reportLon,
+    };
+    fetch("/api/community-reports/", {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken")},
+        body: JSON.stringify(payload),
+    }).then(r => {
+        if (!r.ok) throw new Error("Submission failed");
+        return r.json();
+    }).then(() => location.reload())
+      .catch(() => alert("Could not submit report. Please try again."));
+});
+
+document.querySelectorAll(".verify-btn").forEach(btn => {
+    btn.addEventListener("click", function () {
+        fetch(`/api/community-reports/${btn.dataset.uuid}/verify/`, {
+            method: "POST",
+            headers: {"X-CSRFToken": getCookie("csrftoken")},
+        }).then(() => location.reload());
+    });
+});
+</script>
+{% endblock %}
