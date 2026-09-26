@@ -1,4 +1,4 @@
-# FloodWatch Ghana
+# Flood Watch Ghana
 
 Hybrid IoT + satellite flood monitoring system for Accra, Ghana — covering
 the Odaw River basin, Korle Lagoon, and surrounding low-lying communities.
